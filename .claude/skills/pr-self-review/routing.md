@@ -17,6 +17,7 @@ workflows rather than inventing a parallel list is the whole point: a local
 | `client`        | `client.yml`                                 | `client/**`, `scripts/check-contracts.sh`, `.github/workflows/client.yml`                        |
 | `server`        | `server-unit.yml`, `server-integration.yml`  | `server/**`, `reviewer-core/**`, `scripts/check-contracts.sh`, the two workflow files            |
 | `reviewer-core` | `reviewer-core.yml`                          | `reviewer-core/**`, `server/src/vendor/shared/**`, `.github/workflows/reviewer-core.yml`         |
+| `mcp-server`    | `mcp-server.yml`                             | `mcp-server/**`, `.github/workflows/mcp-server.yml`                                              |
 | `e2e`           | `e2e-web.yml`                                | `client/**`, `server/**`, `e2e/**`, `.github/workflows/e2e-web.yml`                              |
 
 **Re-read the workflows on every run.** Do not trust this table if it disagrees
@@ -52,6 +53,7 @@ lying.
 | `server/src/db/schema.ts`, `server/src/db/migrations/**`  | `drizzle-orm-patterns`, `postgresql-table-design`                         |
 | `reviewer-core/src/**`                                    | `onion-architecture`                                                      |
 | `server/src/vendor/shared/contracts/**`                   | `zod`, `response-schema`                                                  |
+| `mcp-server/**`                                           | `zod`, `typescript-expert`, `security`                                    |
 | `e2e/**`                                                  | — (no skill; use the checklist in `e2e/README.md`)                        |
 | any `*.ts` / `*.tsx` in any zone                          | `typescript-expert`                                                       |
 | **by hunk content, not path** (see below)                 | `security`, `semver-discipline`, `deprecation-policy`                    |

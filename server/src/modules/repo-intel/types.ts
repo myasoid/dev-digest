@@ -21,15 +21,23 @@
  * This keeps signatures natural (no `{ degraded, data }` wrappers at call sites)
  * while still guaranteeing every consumer can fall back without throwing.
  */
+import type { BlastCallerRow, BlastChangedSymbol, BlastResult, DegradedReason } from '@devdigest/shared';
 
 export type IndexStatus = 'full' | 'partial' | 'degraded' | 'failed';
 
-export type DegradedReason =
-  | 'flag_off'
-  | 'index_failed'
-  | 'index_partial'
-  | 'repo_too_large'
-  | 'no_data';
+/**
+ * `DegradedReason`, `BlastChangedSymbol`, `BlastCallerRow`, `BlastResult` are
+ * authoritatively defined as Zod schemas in `@devdigest/shared`
+ * (`contracts/blast.ts`) so `POST /repos/:id/blast` can declare a real
+ * `response` schema. Re-exported here (inferred TS types only, imported
+ * above so they stay usable within this file too) so every existing import
+ * of these names from this module keeps working unchanged, and
+ * `RepoIntelService.getBlastRadius()` needs no signature change. Do NOT
+ * confuse `BlastResult` with `@devdigest/shared`'s unrelated `BlastRadius`
+ * (a `PrBrief` summary field, `contracts/brief.ts`) — different shape,
+ * different producer.
+ */
+export type { DegradedReason, BlastChangedSymbol, BlastCallerRow, BlastResult };
 
 export interface IndexResult {
   status: IndexStatus;
@@ -50,41 +58,10 @@ export interface IndexState extends IndexResult {
 }
 
 // ---------------------------------------------------------------------------
-// Blast radius (facade method `getBlastRadius`). Adopted by blast/service.ts in
-// T2; in T1 the facade returns a degraded best-effort over container.codeIndex.
+// Blast radius (facade method `getBlastRadius`) — see the re-export block
+// above (`DegradedReason` / `BlastChangedSymbol` / `BlastCallerRow` /
+// `BlastResult`) for where these types now live.
 // ---------------------------------------------------------------------------
-
-export interface BlastChangedSymbol {
-  file: string;
-  name: string;
-  kind: string;
-}
-
-export interface BlastCallerRow {
-  file: string;
-  symbol: string;
-  /** Which changed symbol this caller reaches. */
-  viaSymbol: string;
-  /** 1-based line of the reference (representative; for the BlastRadius view). */
-  line: number;
-  /** file_rank.rank of the caller file (0 in the degraded/ripgrep path). */
-  rank: number;
-}
-
-export interface BlastResult {
-  changedSymbols: BlastChangedSymbol[];
-  callers: BlastCallerRow[];
-  /** "METHOD /path" (via extractEndpoints / file_facts) — flat union. */
-  impactedEndpoints: string[];
-  /**
-   * Per-caller-file precomputed facts, so consumers (blast) can attribute
-   * endpoints/crons to the changed symbol whose callers live in that file.
-   * Present on the persistent (non-degraded) path; absent otherwise.
-   */
-  factsByFile?: Record<string, { endpoints: string[]; crons: string[] }>;
-  degraded?: boolean;
-  reason?: DegradedReason;
-}
 
 // ---------------------------------------------------------------------------
 // Read-model rows.

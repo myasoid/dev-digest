@@ -84,6 +84,19 @@ _None yet._
 
 ## Codebase Patterns
 
+- **2026-08-21** — `@devdigest/shared`'s barrel (`index.ts`) does `export *`
+  from every `contracts/*.ts` file with no collision check beyond what `tsc`
+  catches (a literal duplicate *name* fails to compile). A near-miss —
+  different name, same domain concept — compiles clean and is a pure
+  human-review risk: `contracts/brief.ts` already exports `BlastRadius` (a
+  `PrBrief` summary field: `changed_symbols`/`downstream`/`summary`, produced
+  by the PR-brief classifier), and the new `contracts/blast.ts` needed to add
+  an unrelated `BlastResult` (repo-intel's `getBlastRadius()` facade return
+  type). Before naming a new contract, grep the barrel's existing exports for
+  near-synonyms of the concept, not just an exact-name collision — `tsc` will
+  not warn you either way. `server/src/vendor/shared/contracts/blast.ts`,
+  `server/src/vendor/shared/contracts/brief.ts:74`
+
 - **2026-08-19** — a classifier driven by a hand-written glob-pattern list
   (`WIRING_PATTERNS`/`BOILERPLATE_PATTERNS` in
   `server/src/modules/reviews/smart-diff/constants.ts`) reads as complete —
@@ -217,6 +230,19 @@ _None yet._
   `server/test/skills-import.test.ts` ("refuses a zip bomb WITHOUT inflating it")
 
 ## Recurring Errors & Fixes
+
+- **2026-08-21** — `export type { X } from 'module'` (a re-export) does NOT
+  bind `X` into the *local* module's scope for further use in that same
+  file — it only makes `X` importable from elsewhere. Promoting
+  `BlastResult`/`BlastChangedSymbol`/`BlastCallerRow`/`DegradedReason` from
+  plain interfaces in `repo-intel/types.ts` to inferred types re-exported
+  from `@devdigest/shared` broke immediately: `RepoIntel.getBlastRadius():
+  Promise<BlastResult>` in that same file needs `BlastResult` as a locally
+  usable type, and a bare `export type {...} from '@devdigest/shared'` does
+  not provide that. Fix: `import type { BlastResult, ... } from
+  '@devdigest/shared'` first, then a separate `export type { BlastResult,
+  ... };` (no `from`) to both use it locally and keep re-exporting it.
+  `server/src/modules/repo-intel/types.ts`
 
 - **2026-08-19** — "zero consumers" for a contract field (the bar for treating
   a shape change as non-breaking, no deprecation path needed) must be checked
