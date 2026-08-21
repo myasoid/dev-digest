@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ApiClient } from './http/client.js';
-import { BlastRadiusOutput, GetConventionsOutput, ListAgentsOutput, ReviewResult } from './schemas.js';
+import { BlastRadiusOutput, GetConventionsOutput, ListAgentsOutput, PrBlastMap, ReviewResult } from './schemas.js';
 import { getBlastRadius } from './tools/get-blast-radius.js';
 import { getConventions } from './tools/get-conventions.js';
 import { getFindings } from './tools/get-findings.js';
@@ -76,12 +76,35 @@ export function createServer(client: ApiClient): McpServer {
     'get_blast_radius',
     {
       description:
-        "Get the impact map for a set of changed files in a repository — which symbols changed, what calls them, and which API endpoints are affected. May return a degraded result with a reason if the repository isn't fully indexed yet.",
+        "Get the blast-radius impact map for a repository. Two forms:\n" +
+        "1. changed_files form (existing): pass `repo` (owner/name) and `changed_files` → calls POST /repos/:id/blast and returns a BlastRadiusOutput.\n" +
+        "2. pr form (Phase 3): pass `repo` and `pr` (PR number) OR pass `pr` as 'owner/name#number' → calls GET /pulls/:id/blast and returns a PrBlastMap with per-symbol caller details, prior PRs, and a tri-state status. For a partial result, the explanation field names what is incomplete.\n" +
+        "Both forms return a non-error result for degraded/partial indexes; the text content explains the condition.",
       inputSchema: {
-        repo: z.string(),
-        changed_files: z.array(z.string()),
+        repo: z
+          .string()
+          .optional()
+          .describe(
+            'owner/name slug, e.g. "acme/payments-api". Required for the changed_files form. Optional for the pr form when pr is given as "owner/name#number".',
+          ),
+        changed_files: z
+          .array(z.string())
+          .optional()
+          .describe('Changed file paths. When present, calls POST /repos/:id/blast (existing form).'),
+        pr: z
+          .union([z.number().int(), z.string()])
+          .optional()
+          .describe(
+            'PR number or "owner/name#number". When present, calls GET /pulls/:id/blast (Phase 3 form). Takes precedence over changed_files.',
+          ),
       },
-      outputSchema: BlastRadiusOutput.shape,
+      // The outputSchema covers both response shapes (BlastRadiusOutput and
+      // PrBlastMap) by making all fields optional. The text content always has the
+      // full readable output; structuredContent is present for programmatic use.
+      outputSchema: {
+        ...BlastRadiusOutput.partial().shape,
+        ...PrBlastMap.partial().shape,
+      },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => getBlastRadius(client, args),

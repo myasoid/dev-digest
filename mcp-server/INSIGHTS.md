@@ -42,7 +42,24 @@ _None yet._
 
 ## Codebase Patterns
 
-_None yet._
+- **2026-08-21** — `src/server.test.ts` pins each tool's description string
+  verbatim with `toBe(...)`. A legitimate description change (e.g. adding a
+  second form to a tool) requires updating that test to match — otherwise the
+  test suite fails with a string-mismatch error that reads like a logic failure
+  but is just a stale assertion. When extending a tool's description, grep
+  `server.test.ts` for the old string and update it there too.
+  `src/server.test.ts`
+
+- **2026-08-21** — When a tool gains a second return shape (e.g.
+  `get_blast_radius` adding the `pr` form returning `PrBlastMap` alongside the
+  existing `BlastRadiusOutput`), the registered `outputSchema` must accept
+  both. The pattern that works: spread `.partial()` of both Zod objects into
+  the `outputSchema` shape — `{ ...ShapeA.partial().shape,
+  ...ShapeB.partial().shape }`. All fields become optional, so either payload
+  validates. The `content[0].text` carries the full readable output; callers
+  should not rely on any specific field being non-null without checking
+  `status`/`degraded` first. `src/server.ts` (`get_blast_radius`
+  `outputSchema`)
 
 ## Tool & Library Notes
 
@@ -71,7 +88,18 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
-_None yet._
+- **2026-08-21** — `"Could not reach the DevDigest API at http://localhost:3001.
+  Start it with ./scripts/dev.sh, then retry."` does **not** mean the API is
+  down. `request()` catches every `fetch` rejection in one bare `catch {}` and
+  emits that single message for both `ECONNREFUSED` *and* its own
+  `AbortController` abort at `timeoutMs` (15 s default), so any call slower
+  than 15 s is misreported as a dead server. Hit twice in a row on
+  `run_agent_on_pr` while `curl localhost:3001/health` returned `200` and port
+  3001 was listening. **Both runs had completed server-side** — check
+  `GET /pulls/:prId/runs` for `status: done`, which is the ground truth
+  regardless of what the tool returned, then call `get_findings` to read the
+  result. Do **not** re-run the review: it burns LLM credits redoing finished
+  work. `src/http/client.ts:84`, `src/http/config.ts:14`
 
 ## Open Questions
 

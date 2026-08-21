@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "devdigest": {
+      "command": "node",
+      "args": ["/home/imiasoid/Workspace/ai-agentic-eng/dev-digest/mcp-server/dist/index.js"],
+      "env": { "DEVDIGEST_API_URL": "http://localhost:3001" }
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    }
+  }
+}

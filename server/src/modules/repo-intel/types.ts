@@ -98,6 +98,28 @@ export interface FileRankRow {
   percentile: number;
 }
 
+/**
+ * Return type for `getReverseImporters`: the set of files that (transitively)
+ * import one of the seed files, with the minimum BFS depth at which each was
+ * reached. `truncated` is true when the 200-visited-file cap was hit.
+ */
+export interface ReverseImportersResult {
+  files: Map<string, number>;
+  truncated: boolean;
+}
+
+/**
+ * Per-file precomputed facts (endpoints and crons) returned by
+ * `getFactsForFiles`. Mirrors `IndexerFileFactsRow` from the repository but
+ * lives in types.ts so the facade interface can reference it without importing
+ * from the repository layer.
+ */
+export interface FileFactsRow {
+  filePath: string;
+  endpoints: string[];
+  crons: string[];
+}
+
 export interface RepoMapResult {
   text: string;
   tokens: number;
@@ -146,4 +168,25 @@ export interface RepoIntel {
     opts?: { exclude?: string[] },
   ): Promise<string[]>;
   getCriticalPaths(repoId: string): Promise<string[][]>;
+
+  // --- Blast additions (Phase 1) ------------------------------------------
+  /**
+   * Reverse BFS over the import graph: which files import (transitively) any
+   * of the given seed files, up to `depth` hops? Returns a Map<file, minDepth>
+   * and a `truncated` flag when the 200-file visited cap was hit.
+   *
+   * Degrades to `{ files: new Map(), truncated: false }` when the flag is off
+   * or no edges exist, matching the array-method degraded convention.
+   */
+  getReverseImporters(
+    repoId: string,
+    files: string[],
+    depth: number,
+  ): Promise<ReverseImportersResult>;
+
+  /**
+   * Public wrapper over the private `repo.getFileFacts`: endpoints and crons
+   * for the given files. Returns `[]` when the flag is off or no facts exist.
+   */
+  getFactsForFiles(repoId: string, files: string[]): Promise<FileFactsRow[]>;
 }

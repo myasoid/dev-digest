@@ -67,6 +67,17 @@ export const BlastResult = z.object({
   factsByFile: z
     .record(z.string(), z.object({ endpoints: z.array(z.string()), crons: z.array(z.string()) }))
     .optional(),
+  /**
+   * Pre-cap caller count per changed symbol (keyed by `viaSymbol` / symbol
+   * name), recorded **before** the per-symbol `MAX_CALLERS_PER_SYMBOL` slice.
+   * Lets consumers (blast module's `PrBlastSymbol.callerCount`) report the
+   * true total rather than the post-cap array length.
+   *
+   * Present on the persistent (non-degraded) path; absent otherwise (the
+   * ripgrep/degraded path has no cap and no rank sort, so no consumer needs
+   * the distinction).
+   */
+  callerCounts: z.record(z.string(), z.number().int()).optional(),
   degraded: z.boolean().optional(),
   reason: DegradedReason.optional(),
 });

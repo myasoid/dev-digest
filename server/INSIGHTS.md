@@ -84,6 +84,58 @@ _None yet._
 
 ## Codebase Patterns
 
+- **2026-08-21** — `getBlastRadius`'s caller cap is named and documented
+  per-symbol (`MAX_CALLERS_PER_SYMBOL = 20`, *"Caller fan-out cap per changed
+  symbol"*, `repo-intel/constants.ts`) but applied **globally**:
+  `tryPersistentBlast` merges every changed symbol's callers into one array,
+  sorts it `rank DESC` across all symbols, then ends with
+  `callers.slice(0, MAX_CALLERS_PER_SYMBOL)`. A PR touching 12 symbols gets 20
+  callers *in total*, all belonging to whichever symbols sit in the
+  highest-ranked files; every other changed symbol returns an empty caller list
+  with no truncation flag — indistinguishable from "nothing depends on this",
+  which is the most dangerous wrong answer the feature can give. The general
+  shape to watch for here: a per-group limit applied *after* the groups are
+  flattened silently starves the low-ranked groups. Cap per group, and return
+  the pre-cap count so the consumer can render "20 of 47".
+  `server/src/modules/repo-intel/service.ts:386`, `specs/04-blast-radius.md`
+  **Fixed 2026-08-21 in `server/src/modules/repo-intel/service.ts`**: now
+  groups callers by `viaSymbol`, sorts within each group, and pushes
+  `group.slice(0, MAX_CALLERS_PER_SYMBOL)` — one cap per symbol, not global.
+
+- **2026-08-21** — repo-intel's degraded contract (`degraded?: boolean` +
+  `reason`, per the DEGRADED CONTRACT header in `repo-intel/types.ts`) cannot
+  express a third state, and a third state exists. `tryGetIndexState` marks a
+  row degraded only when `status === 'degraded' || status === 'failed'`
+  (`repository.ts:218`), while `tryPersistentBlast` explicitly *accepts*
+  `status === 'partial'` (`service.ts:320`) and returns `degraded: false` with
+  no `reason`. So a repo that hit the 110 s `INDEX_SOFT_BUDGET_MS` mid-index
+  answers facade reads as though it were fully indexed. The same masking
+  applies to staleness — results are computed at
+  `repo_index_state.last_indexed_sha` and nothing surfaces the skew from the
+  caller's SHA. A consumer that must not present incomplete data as complete
+  has to call `getIndexState()` itself and derive its own tri-state; the
+  boolean will not tell it. `server/src/modules/repo-intel/service.ts:320`,
+  `server/src/modules/repo-intel/repository.ts:218`
+  **Resolved 2026-08-21** via `PrBlastMap` and `blast/service.ts`:
+  `BlastService.getBlastMap` calls `getIndexState()` itself, checks `status
+  === 'partial'` and `indexedSha !== pr.headSha` independently, and derives
+  `BlastStatus` ('ok'/'partial'/'degraded') as a pure function `deriveStatus`
+  — the boolean `BlastResult.degraded` is only the gate for the fully-degraded
+  path. `server/src/modules/blast/service.ts`
+
+- **2026-08-21** — `PrBlastSymbol.callerCount` and `truncated` are now exact:
+  `BlastResult` carries an optional `callerCounts: Record<viaSymbol, number>`
+  populated by `tryPersistentBlast` **before** the per-group
+  `slice(0, MAX_CALLERS_PER_SYMBOL)`. `buildSymbols` reads that field for the
+  true pre-cap total and sets `truncated = total > callers.length` (exact, not
+  a `>= cap` guess). When `callerCounts` is absent (ripgrep/degraded path, no
+  cap applies) `truncated` is always `false`. The old `>= MAX_CALLERS_PER_SYMBOL`
+  heuristic produced two wrong answers: "47 capped to 20" was correct but "exactly
+  20" was a false positive. Threading the pre-cap counts is the minimal change —
+  no re-query needed. `server/src/vendor/shared/contracts/blast.ts`
+  (`callerCounts` field), `server/src/modules/repo-intel/service.ts`
+  (`tryPersistentBlast`), `server/src/modules/blast/service.ts` (`buildSymbols`)
+
 - **2026-08-21** — `@devdigest/shared`'s barrel (`index.ts`) does `export *`
   from every `contracts/*.ts` file with no collision check beyond what `tsc`
   catches (a literal duplicate *name* fails to compile). A near-miss —
@@ -116,6 +168,23 @@ _None yet._
   exhaustive — self-authored unit tests will not surface a convention the
   author didn't think of. `server/src/modules/reviews/smart-diff/constants.ts`,
   `server/src/modules/reviews/smart-diff/classifier.test.ts`
+  **Second instance, 2026-08-21 — same failure mode, different subsystem, so
+  treat this as the general rule for every regex/pattern extractor here.**
+  `extractEndpoints` (`src/adapters/codeindex/extract.ts`) matched `app.post(…)`
+  one line at a time, and its fixtures only ever used the single-line form. But
+  wherever a route carries an options object this repo wraps it, putting the
+  path on the *next* line (`app.post(\n  '/repos/:id/blast',`) — 17 of the
+  server's own 54 registrations. Those endpoints were therefore never written to
+  `file_facts`, and blast radius reported `impactedEndpoints: []`, which reads
+  as "this diff reaches no endpoints" rather than "the extractor cannot see
+  them" — a silent wrong answer, not a visible gap. Fixed by matching over a
+  sliding 2-line window (8 for the `{ method, url }` object form) plus a
+  negative test that an unrelated nearby string is not glued onto a bare
+  `app.listen(`. After the fix one changed file surfaced 49 endpoints where it
+  had surfaced 0. Note the second-order trap: changing the extractor does
+  nothing to existing indexes on its own, because an incremental reindex skips
+  unchanged files — `INDEXER_VERSION` must be bumped to force the rebuild.
+  `server/src/adapters/codeindex/extract.ts`, `server/test/extract.test.ts`
 
 - **2026-08-14** — a grouped-by-`X` aggregate query (`GROUP BY skill_id`, one
   round trip for the whole list) and a single-item version of the same
@@ -199,6 +268,15 @@ _None yet._
   refactor. `server/eslint.config.js`
 
 ## Tool & Library Notes
+
+- **2026-08-21** — Drizzle's `inArray(column, array)` is the correct way to
+  emit `WHERE column = ANY($1)` with proper parameter binding. Writing a raw
+  `sql\`${col} = ANY($1::text[])\`` inline is wrong — Drizzle's parameter
+  counter does not know about the `$1` inside the template literal, so the
+  generated query either binds the wrong slot or fails with a missing-parameter
+  error. `inArray` handles the binding automatically and is what repositories
+  should reach for whenever filtering by membership in a caller-supplied
+  array. `server/src/modules/blast/repository.ts`
 
 - **2026-08-19** — a `/** ... */` JSDoc block comment that quotes a glob
   pattern ending in `**` immediately followed by a literal `/` (e.g. writing

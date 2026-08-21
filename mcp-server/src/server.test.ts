@@ -59,10 +59,15 @@ describe('createServer', () => {
     expect(tools.get_conventions?.annotations).toEqual({ readOnlyHint: true, openWorldHint: false });
   });
 
-  it('uses the verbatim get_blast_radius description and annotations', () => {
-    expect(tools.get_blast_radius?.description).toBe(
-      "Get the impact map for a set of changed files in a repository — which symbols changed, what calls them, and which API endpoints are affected. May return a degraded result with a reason if the repository isn't fully indexed yet.",
-    );
+  it('uses the updated get_blast_radius description (Phase 3: pr form added) and annotations', () => {
+    // Phase 3 added the pr form. The description now covers both the existing
+    // changed_files form and the new pr form. Annotations are unchanged.
+    const desc = tools.get_blast_radius?.description ?? '';
+    // Both forms must be mentioned.
+    expect(desc).toContain('changed_files');
+    expect(desc).toContain('pr');
+    // Status tri-state must be mentioned (the PR form's key addition).
+    expect(desc).toContain('partial');
     expect(tools.get_blast_radius?.annotations).toEqual({ readOnlyHint: true, openWorldHint: false });
   });
 });

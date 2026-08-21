@@ -109,8 +109,9 @@ export const RunStatusSummary = z.object({
 });
 export type RunStatusSummary = z.infer<typeof RunStatusSummary>;
 
-// ---- get_blast_radius (mirrors the promoted @devdigest/shared BlastResult;
-// kept as an independent copy per the architecture note above) ---------------
+// ---- get_blast_radius (mirrors @devdigest/shared BlastResult / PrBlastMap;
+// kept as independent copies per the architecture note above — no vendor/shared
+// copy here, no check-contracts.sh coverage for this package) ---------------
 
 export const DegradedReason = z
   .enum(['flag_off', 'index_failed', 'index_partial', 'repo_too_large', 'no_data'])
@@ -156,3 +157,77 @@ export const BlastRadiusOutput = z.object({
   reason: DegradedReason.optional(),
 });
 export type BlastRadiusOutput = z.infer<typeof BlastRadiusOutput>;
+
+// ---- PrBlastMap — GET /pulls/:id/blast (Phase 3) ---------------------------
+// Mirrors @devdigest/shared contracts/pr-blast.ts. Kept as an independent copy.
+
+export const BlastStatus = z
+  .enum(['ok', 'partial', 'degraded'])
+  .describe(
+    'ok = complete index, no staleness, no caps; partial = stale index, partial index, or a cap was hit; degraded = no index at all.',
+  );
+export type BlastStatus = z.infer<typeof BlastStatus>;
+
+export const PrBlastSymbol = z.object({
+  file: z.string().describe('Repo-relative path where the changed symbol is defined.'),
+  name: z.string().describe('Symbol name.'),
+  kind: z.string().describe('Symbol kind, e.g. "function", "class".'),
+  callers: z.array(BlastCallerRow).describe('Call sites that reference this symbol (capped at 20 per symbol).'),
+  callerCount: z
+    .number()
+    .int()
+    .describe('Total callers before the per-symbol cap; exact even when truncated is true.'),
+  truncated: z.boolean().describe('True when callers was capped at MAX_CALLERS_PER_SYMBOL.'),
+});
+export type PrBlastSymbol = z.infer<typeof PrBlastSymbol>;
+
+export const PrBlastTarget = z.object({
+  label: z.string().describe('"METHOD /path" (endpoint) or cron expression / job name.'),
+  viaFiles: z.array(z.string()).describe('Files through which this target was reached.'),
+  depth: z
+    .union([z.literal(1), z.literal(2)])
+    .describe('Traversal depth: 1 = direct caller file, 2 = file that imports a caller file.'),
+});
+export type PrBlastTarget = z.infer<typeof PrBlastTarget>;
+
+export const PriorPrSummary = z.object({
+  number: z.number().int().describe('GitHub PR number.'),
+  title: z.string().describe('PR title.'),
+  url: z.string().describe('GitHub PR URL (https://github.com/{owner}/{name}/pull/{number}).'),
+  sharedFiles: z.array(z.string()).describe('Files this PR and the target PR both touched.'),
+});
+export type PriorPrSummary = z.infer<typeof PriorPrSummary>;
+
+export const PrBlastMap = z.object({
+  status: BlastStatus,
+  explanation: z
+    .string()
+    .nullable()
+    .describe(
+      'Non-null when status is not "ok". Plain prose describing which condition fired (stale index, partial index, cap hit, or degraded). Surface this to the reviewer whenever non-null.',
+    ),
+  reason: DegradedReason.nullable().describe('Why the result is degraded; null when status is not "degraded".'),
+  indexedSha: z
+    .string()
+    .nullable()
+    .describe('The commit SHA the index was built at — file:line links are pinned to this SHA.'),
+  stale: z.boolean().describe('True when indexedSha differs from the PR head_sha.'),
+  symbols: z.array(PrBlastSymbol).describe('Changed symbols, each with their capped caller list.'),
+  symbolsTruncated: z.boolean().describe('True when the changed-symbol list was capped at 50.'),
+  endpoints: z
+    .array(PrBlastTarget)
+    .describe('HTTP endpoints reachable from changed symbols at depth 1 or 2.'),
+  crons: z
+    .array(PrBlastTarget)
+    .describe('Scheduled jobs reachable from changed symbols at depth 1 or 2.'),
+  priorPrs: z
+    .array(PriorPrSummary)
+    .describe('Up to 5 prior PRs in the same repo that touched at least one of the same files, ranked by shared-file count.'),
+  counts: z.object({
+    symbols: z.number().int(),
+    callers: z.number().int(),
+    endpoints: z.number().int(),
+    crons: z.number().int(),
+  }).describe('Post-cap counts reflecting exactly what is returned in this response.'),
+});
+export type PrBlastMap = z.infer<typeof PrBlastMap>;

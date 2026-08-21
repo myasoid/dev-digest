@@ -176,6 +176,18 @@ export function extractReferences(content: string, symbol: string): ExtractedRef
  * Heuristic endpoint detector: HTTP route registrations in a file.
  * Catches Fastify/Express style `app.get('/path', ...)`, `router.post(...)`,
  * `app.get<...>('/path')`, and `route({ method, url })`. Returns "METHOD /path".
+ *
+ * Matching runs over a sliding WINDOW of lines, not one line at a time: a
+ * registration that carries a route-options object is conventionally wrapped,
+ * putting the path on the line *after* the verb —
+ *
+ *     app.post(
+ *       '/repos/:id/blast',
+ *       { schema: { ... } },
+ *
+ * — and a per-line scan silently misses every one of them. That was 17 of this
+ * repo's own 54 registrations, which surfaced as an empty `impactedEndpoints`
+ * in blast radius (`file_facts` is written from this function).
  */
 export function extractEndpoints(content: string): string[] {
   const out = new Set<string>();
@@ -183,13 +195,21 @@ export function extractEndpoints(content: string): string[] {
   const verbRe =
     /\b(?:app|router|fastify|server|api)\.(get|post|put|patch|delete|options|head)\s*(?:<[^>]*>)?\s*\(\s*(['"`])([^'"`]+)\2/i;
   const routeObjRe = /method\s*:\s*['"`](GET|POST|PUT|PATCH|DELETE)['"`][\s\S]*?url\s*:\s*['"`]([^'"`]+)['"`]/i;
-  for (const raw of lines) {
-    const m = raw.match(verbRe);
+
+  /** Lines joined into one logical line — the verb and its path may be split. */
+  const VERB_WINDOW = 2;
+  /** `{ method, url }` pairs sit inside an object literal, so they need more. */
+  const OBJ_WINDOW = 8;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const verbWindow = lines.slice(i, i + VERB_WINDOW).join(' ');
+    const m = verbWindow.match(verbRe);
     if (m) {
       const [, verb, , path] = m;
       if (verb && path) out.add(`${verb.toUpperCase()} ${path}`);
     }
-    const r = raw.match(routeObjRe);
+    const objWindow = lines.slice(i, i + OBJ_WINDOW).join('\n');
+    const r = objWindow.match(routeObjRe);
     if (r) {
       const [, method, url] = r;
       if (method && url) out.add(`${method.toUpperCase()} ${url}`);

@@ -63,3 +63,5 @@ export type { RepoIntelState } from "./repo-intel";
 
 export { useConventions, useExtractConventions, useUpdateConvention } from "./conventions";
 export type { UpdateConventionInput } from "./conventions";
+
+export { useBlastRadius } from "./blast";

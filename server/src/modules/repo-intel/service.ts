@@ -33,12 +33,14 @@ import type {
   BlastCallerRow,
   BlastChangedSymbol,
   BlastResult,
+  FileFactsRow,
   FileRankRow,
   IndexResult,
   IndexState,
   RefRow,
   RepoIntel,
   RepoMapResult,
+  ReverseImportersResult,
   SignatureRow,
   SymbolRow,
 } from './types.js';
@@ -351,7 +353,12 @@ export class RepoIntelService implements RepoIntel {
       else symsByFile.set(s.path, [s]);
     }
 
-    const callers: BlastCallerRow[] = [];
+    // Group callers by viaSymbol, sort within each group by rank DESC, cap per
+    // group at MAX_CALLERS_PER_SYMBOL. A PR touching many symbols previously got
+    // 20 callers in total (a global slice), which starved lower-ranked symbols of
+    // any callers at all — the most dangerous wrong answer (see INSIGHTS.md
+    // 2026-08-21 / specs/04-blast-radius.md §1). Fix: cap per group.
+    const callersBySymbol = new Map<string, BlastCallerRow[]>();
     const seenCaller = new Set<string>();
     for (const c of callerRows) {
       const enclosing =
@@ -361,15 +368,31 @@ export class RepoIntelService implements RepoIntel {
       const key = `${c.fromPath}|${enclosing}|${c.toSymbol}`;
       if (seenCaller.has(key)) continue;
       seenCaller.add(key);
-      callers.push({
+      const row: BlastCallerRow = {
         file: c.fromPath,
         symbol: enclosing,
         viaSymbol: c.toSymbol,
         line: c.line,
         rank: c.rank,
-      });
+      };
+      const group = callersBySymbol.get(c.toSymbol);
+      if (group) group.push(row);
+      else callersBySymbol.set(c.toSymbol, [row]);
     }
-    callers.sort((a, b) => b.rank - a.rank);
+
+    // Record pre-cap totals per symbol BEFORE slicing, so consumers can report
+    // "20 of 47" rather than "20 of 20". Keyed by viaSymbol (= symbol name).
+    const callerCounts: Record<string, number> = {};
+    for (const [sym, group] of callersBySymbol) {
+      callerCounts[sym] = group.length;
+    }
+
+    // Sort within each group by rank DESC, then apply per-symbol cap.
+    const callers: BlastCallerRow[] = [];
+    for (const group of callersBySymbol.values()) {
+      group.sort((a, b) => b.rank - a.rank);
+      callers.push(...group.slice(0, MAX_CALLERS_PER_SYMBOL));
+    }
 
     // Precomputed facts per caller file (endpoints + crons), so consumers can
     // attribute them to the changed symbol whose callers live in that file.
@@ -383,9 +406,10 @@ export class RepoIntelService implements RepoIntel {
 
     return {
       changedSymbols,
-      callers: callers.slice(0, MAX_CALLERS_PER_SYMBOL),
+      callers,
       impactedEndpoints: [...endpoints],
       factsByFile,
+      callerCounts,
       degraded: false,
     };
   }
@@ -699,6 +723,96 @@ export class RepoIntelService implements RepoIntel {
       paths.push(chain);
     }
     return paths;
+  }
+  /**
+   * Reverse BFS over the import graph (`file_edges`): for each of the given
+   * seed files, find every file that imports it (transitively) up to `depth`
+   * hops. Returns a Map<file, minDepth> and a `truncated` flag when the
+   * 200-file cap was hit (files visited ranked by `file_rank.rank` DESC).
+   *
+   * Degrades to `{ files: new Map(), truncated: false }` when the flag is off,
+   * the graph is empty, or the seed list is empty — never throws.
+   */
+  async getReverseImporters(
+    repoId: string,
+    files: string[],
+    depth: number,
+  ): Promise<ReverseImportersResult> {
+    const empty: ReverseImportersResult = { files: new Map(), truncated: false };
+    if (!this.container.config.repoIntelEnabled) return empty;
+    if (files.length === 0 || depth <= 0) return empty;
+
+    const edges = await this.repo.getEdges(repoId);
+    // NOTE: getEdges loads the full import graph for the repo into memory on
+    // every request. At current scale (thousands of files) this is acceptable;
+    // if it becomes a bottleneck a targeted "reverse neighbours of these files"
+    // query would replace it. A partial graph query would need new SQL; the
+    // full load here is a single indexed scan.
+    if (edges.length === 0) return empty;
+
+    // Build reverse adjacency: imported file → list of files that import it.
+    const reverseAdj = new Map<string, string[]>();
+    for (const e of edges) {
+      const arr = reverseAdj.get(e.toFile);
+      if (arr) arr.push(e.fromFile);
+      else reverseAdj.set(e.toFile, [e.fromFile]);
+    }
+
+    const MAX_VISITED = 200;
+    const result = new Map<string, number>(); // file → minDepth
+    const visited = new Set<string>(files); // seed files excluded from result
+    let truncated = false;
+
+    // BFS level by level. We defer the rank lookup until we know the actual
+    // candidate set at each level — using getFileRankFor(paths) instead of
+    // loading all 100 k ranked paths up-front.
+    let frontier: string[] = [...files];
+    for (let d = 1; d <= depth; d += 1) {
+      // Collect candidate importers of the current frontier (unseen only).
+      const candidates = new Set<string>();
+      for (const f of frontier) {
+        for (const importer of reverseAdj.get(f) ?? []) {
+          if (!visited.has(importer)) candidates.add(importer);
+        }
+      }
+      if (candidates.size === 0) break;
+
+      // Fetch ranks for only the candidate files; sort by rank DESC to admit
+      // high-value importers first when the cap bites.
+      const candidateList = [...candidates];
+      const rankRows = await this.repo.getFileRankFor(repoId, candidateList);
+      const rankOf = new Map(rankRows.map((r) => [r.path, r.percentile]));
+      const sorted = candidateList.sort(
+        (a, b) => (rankOf.get(b) ?? 0) - (rankOf.get(a) ?? 0),
+      );
+
+      const nextFrontier: string[] = [];
+      for (const f of sorted) {
+        if (visited.size >= MAX_VISITED + files.length) {
+          truncated = true;
+          break;
+        }
+        visited.add(f);
+        result.set(f, d);
+        nextFrontier.push(f);
+      }
+      frontier = nextFrontier;
+      if (truncated) break;
+    }
+
+    return { files: result, truncated };
+  }
+
+  /**
+   * Public wrapper over the private `repo.getFileFacts`: precomputed endpoints
+   * and crons for the given files. Returns `[]` when the flag is off, the
+   * file list is empty, or no facts exist — never throws.
+   */
+  async getFactsForFiles(repoId: string, files: string[]): Promise<FileFactsRow[]> {
+    if (!this.container.config.repoIntelEnabled) return [];
+    if (files.length === 0) return [];
+    const rows = await this.repo.getFileFacts(repoId, files);
+    return rows;
   }
 }
 
