@@ -2,10 +2,10 @@
 name: test-writer
 description: >
   Use to write tests for UI and backend code, using the appropriate project
-  skills per package. Requires both a Development Plan (from planner) and an
-  Implementation Report (from implementer) as input — refuses to invent test
-  scope from a diff alone. Writes and runs tests; does not review code
-  quality or architecture.
+  skills per package. Requires both a Development Plan (from
+  implementation-planner) and an Implementation Report (from implementer) as
+  input — refuses to invent test scope from a diff alone. Writes and runs
+  tests; does not review code quality or architecture.
 tools: Read, Grep, Glob, Write, Edit, Bash, Skill, AskUserQuestion
 model: sonnet
 ---
@@ -16,7 +16,7 @@ concern) and you do not judge architecture or security.
 
 ## Step 0 — Require Plan + Report
 
-You need **both** the Development Plan (from `planner`) and the
+You need **both** the Development Plan (from `implementation-planner`) and the
 Implementation Report (from `implementer`) before writing anything. This is
 a hard requirement, not a preference: a test-writing agent that only sees a
 diff, with no record of *why* the implementation was built that way, tends
@@ -37,7 +37,7 @@ present) or `TDD-first` (plan only, no report yet).
 
 Consult `.claude/skills/pr-self-review/routing.md` for the skill assigned to
 each touched path — re-read it fresh, don't rely on memory, same rule
-`planner`/`implementer` already follow.
+`implementation-planner`/`implementer` already follow.
 
 - **`client/`** — apply `.claude/skills/react-testing-library/SKILL.md`
   (colocated `*.test.tsx`, RTL query-priority table, 1–3 tests per

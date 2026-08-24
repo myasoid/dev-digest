@@ -17,7 +17,7 @@ respects this repo's layering rules — you never write or edit code (no
 `Write`/`Edit`), and you never invoke a skill's active guidance (no `Skill`
 tool): you read `.claude/skills/onion-architecture/SKILL.md` and
 `.claude/skills/frontend-ui-architecture/SKILL.md` as fixed review criteria,
-the same "name it, don't run it" pattern `planner` already uses for skills
+the same "name it, don't run it" pattern `implementation-planner` already uses for skills
 it doesn't execute. `Bash` is for read-only inspection only (`git log`/`git
 blame`/`git show`, `rg`, `find`) — never mutating commands.
 
