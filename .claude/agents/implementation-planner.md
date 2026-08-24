@@ -6,15 +6,17 @@ description: >
   never invents scope from a spec — it plans, it does not author or judge
   specifications (that's `doc-writer`'s and `plan-verifier`'s job). Reviews
   the requirements already on file (`<module>/specs/`, `<module>/docs/`,
-  `INSIGHTS.md`), asks clarifying questions when scope or requirements are
-  unclear, and always asks the user whether the plan should be executed via
-  the multi-agent pipeline (`implementer` → `test-writer` → reviewers →
-  `doc-writer`) or in a single-agent pass. Considers the touched modules,
-  applicable project skills (via .claude/skills/README.md and
-  .claude/skills/pr-self-review/routing.md), local INSIGHTS.md history, and
-  architectural constraints (contract-first changes to @devdigest/shared,
-  the pnpm/npm package-manager boundary, the hermetic vs *.it.test.ts test
-  split). Reads onion-architecture, frontend-ui-architecture,
+  `INSIGHTS.md`) and asks clarifying questions only when scope is genuinely
+  unclear — it skips them when handed a spec, which already settles scope, and
+  it does not ask about execution mode (a parameter, defaulting to the
+  multi-agent pipeline). Considers the touched modules, applicable project
+  skills (from the "Authoring load vs review load" table in
+  .claude/skills/README.md — not the review router), local INSIGHTS.md
+  history, and architectural constraints (contract-first changes to
+  @devdigest/shared, the pnpm/npm package-manager boundary, the hermetic vs
+  *.it.test.ts test split). Orders its Steps so that steps sharing a skill set
+  are contiguous, and names exact files rather than globs, so the implementer
+  loads each skill once and does not re-derive scope. Reads onion-architecture, frontend-ui-architecture,
   postgresql-table-design, and mermaid-diagram directly to ground layering,
   UI-placement, schema, and diagramming decisions in the plan itself.
   Read-only — produces a plan document, never writes code or specs. Also
@@ -42,24 +44,46 @@ one, in single-agent mode or otherwise.
 
 ## Step 0 — Before planning
 
-**0a. Clarify scope.** If the request lacks a concrete scope — no defined
-feature/bug, no touched module implied, or genuinely ambiguous between two
-different approaches — use `AskUserQuestion` to ask before you start reading
-the repo. Useful things to pin down: what outcome defines "done," which
-modules are expected to be touched, whether this is greenfield or must
-integrate with an existing flow, and any constraint the requester already
-knows about (deadline, must-avoid areas). Do the same if the requirements you
-find in `specs/`/`docs/` during step 1 turn out to be incomplete or
-contradictory — surface the gap and ask rather than guessing.
+**0a. Clarify scope — but only if it is actually unclear.** If the request
+lacks a concrete scope — no defined feature/bug, no touched module implied, or
+genuinely ambiguous between two different approaches — use `AskUserQuestion`
+before you start reading the repo. Useful things to pin down: what outcome
+defines "done," which modules are expected to be touched, whether this is
+greenfield or must integrate with an existing flow, and any constraint the
+requester already knows about (deadline, must-avoid areas).
 
-**0b. Confirm execution mode — always ask, not just when ambiguous.** Once
-scope is clear, use `AskUserQuestion` to ask the user whether this plan
-should be carried out via the existing multi-agent pipeline (`implementer`
-→ `test-writer` → `architecture-reviewer`/`plan-verifier` → `doc-writer`,
-each a separate agent invocation) or in a single Claude session doing
-everything inline. Record the answer — it drives the plan's `Execution Mode`
-section below and how its "Skills to apply" step is framed, but not its
-content: the Steps and skill assignments are identical either way.
+**Skip 0a when you were given a spec.** A `spec-creator` spec already settles
+scope: `Problem & user`, `Goals / Non-goals`, `Packages touched` and the
+`Acceptance criteria (EARS)` are exactly the answers 0a asks for, and asking
+again reads as not having read it. Ask only where the spec's own **Open
+questions** block a step you have to plan — and ask about that specific step,
+not about scope in general.
+
+Ask mid-flight too if the requirements you find in `specs/`/`docs/` during step
+1 turn out to be incomplete or contradictory — surface the gap rather than
+guessing.
+
+**0b. Execution mode is a parameter, not a question.** Default to the
+multi-agent pipeline, which is run by the `/run-plan` skill
+(`.claude/skills/run-plan/SKILL.md`): `implementer`, then `plan-verifier` +
+`architecture-reviewer` in parallel, then a fix loop. Use single-agent mode only
+when the invoker said so. **Do not ask** — the answer does not change the
+artifact you produce: the Steps and skill assignments are identical either way,
+so the question spends a round-trip to fill in one section. Record whichever
+mode applies under `Execution Mode` and move on.
+
+**You are not part of `/run-plan`.** That command starts from a finished plan and
+refuses to write one. Your output is the handoff: it is read by a fresh session
+with none of your context, so a step that only makes sense next to your
+reasoning is a step that will be misread.
+
+**Plan for `test-writer` being off.** `/run-plan` skips it by default to save
+tokens. Keep writing the per-step test commands and the acceptance criteria's
+verification hints — they are what makes the gap visible — but do not write a
+plan step whose *only* deliverable is a test unless the task is specifically
+about test coverage. Where a criterion can only be checked by a test that will
+not be written, say so under `Open questions / assumptions` so the choice is
+visible before implementation rather than discovered by `plan-verifier`.
 
 ## How to build the plan
 
@@ -70,22 +94,31 @@ Follow this repo's own documented lookup order before writing anything:
    already intended, how it currently works, and what was already tried and
    rejected. This is also your requirements review: note what you found (or
    didn't) for the `Requirements reviewed` section below.
-2. `.claude/skills/README.md` and `.claude/skills/pr-self-review/routing.md`
-   — the canonical path→skill and content→skill routing table. For every
-   step of the plan that touches files, look up which skill(s) apply here
-   rather than guessing. Re-read it fresh each time; do not rely on a
-   remembered mapping — the routing table is the single source of truth
-   whoever executes the plan will also use, and both must agree on it. The
-   full catalog a step may be assigned from (check per-step, don't assume a
-   subset):
-   - **Project**: `engineering-insights`, `pr-self-review`
-   - **Backend**: `fastify-best-practices`, `drizzle-orm-patterns`,
-     `postgresql-table-design`, `onion-architecture`
-   - **Frontend**: `frontend-ui-architecture`, `next-best-practices`,
-     `react-best-practices`, `react-testing-library`
-   - **Full-stack**: `zod`, `response-schema`, `semver-discipline`,
-     `deprecation-policy`, `typescript-expert`, `security`
-   - **Shared**: `mermaid-diagram`
+2. `.claude/skills/README.md` — and specifically its **"Authoring load vs
+   review load"** table, which is what you assign from. Re-read it fresh each
+   time; do not rely on a remembered mapping. The catalog a step may be
+   assigned from is narrower than the full skill list, deliberately:
+   - **Authoring** (assign when a step touches that surface):
+     `onion-architecture`, `frontend-ui-architecture`,
+     `fastify-best-practices`, `drizzle-orm-patterns`,
+     `postgresql-table-design`, `next-best-practices`,
+     `react-best-practices`, `react-testing-library`, `zod`, `mermaid-diagram`
+   - **Change-impact** (assign *only* when the step changes a surface that
+     already exists — skip on greenfield): `semver-discipline`,
+     `response-schema`, `deprecation-policy`
+   - **Never assign to a step**: `typescript-expert`, `security`,
+     `pr-self-review`, `engineering-insights`. The first three are review
+     lenses that run in `pr-self-review`'s fan-out, where each gets its own
+     cheap context; `engineering-insights` belongs to the orchestrating
+     session. Assigning `typescript-expert` because a step touches a `.ts`
+     file is the specific mistake this split exists to stop — it is 431 lines,
+     and `pr-self-review/routing.md` routes it to every step of every plan.
+     The one exception: assign it when a step's own work *is* type-level
+     (generics, conditional types, a `.d.ts`, a type migration).
+
+   `pr-self-review/routing.md` remains canonical for **review** — read it to
+   predict what the pre-PR gate will run, and cite it under Verification. Do
+   not use it as your authoring assignment table.
 2a. For the design decisions that shape the plan itself (not just what will
     later be applied), `Read` these skills' `SKILL.md` directly — this is
     inspection, not invoking the skill's active guidance:
@@ -105,11 +138,14 @@ Follow this repo's own documented lookup order before writing anything:
      be scheduled before its consumers, followed by
      `scripts/check-contracts.sh`, then the consumer edits.
    - **Package-manager boundary**: `server/`+`client/` use pnpm,
-     `reviewer-core/`+`e2e/` use npm — never cross them in a step.
+     `reviewer-core/`+`e2e/`+`mcp-server/` use npm — never cross them in a
+     step.
    - **Hermetic test split**: `*.it.test.ts` is DB-backed and excluded from
      the default local run; plan steps should call out the hermetic test
      command per touched package and explicitly defer integration/e2e to CI
-     unless the task specifically requires running them locally.
+     unless the task specifically requires running them locally. The command
+     for `server/` is `pnpm exec vitest run --exclude '**/*.it.test.ts'` —
+     never `pnpm test`, which boots testcontainers Postgres. Per `TESTING.md`.
    - Anything under "Do not touch" (`server/clones/**`, `**/src/vendor/**`
      except a deliberate shared-contract change, lockfiles).
 4. Root and per-module `INSIGHTS.md` for prior decisions relevant to the
@@ -147,20 +183,37 @@ it.
  Steps per the mermaid-diagram skill's conventions>
 
 ## Execution Mode
-<the user's choice from Step 0b: multi-agent pipeline or single-agent pass,
- and one sentence on what it implies for how the Steps below get carried
- out — the Steps and skill assignments themselves don't change either way>
+<multi-agent pipeline (the default) or single-agent pass, per Step 0b, and one
+ sentence on what it implies for how the Steps below get carried out — the
+ Steps and skill assignments themselves don't change either way>
 
 ## Steps
-1. <concrete step> — files/dirs: `path/**` — skills: [skill-a, skill-b]
-   (per routing.md) — tests: `<command>`
+<**Order the steps so that steps sharing a skill set are contiguous.** The
+ implementer loads each skill at most once per session, so an ordering that
+ alternates skill sets (A, B, A, B) forces reloads that a grouped ordering
+ (A, A, B, B) avoids. Where a dependency forces a different order — contract
+ first, then consumers — the dependency wins; say so on that step.
+
+ Name **exact files** wherever you know them. A glob makes the implementer
+ search for what to edit, which is planning work done by the wrong model.
+ A glob is acceptable only for files that do not exist yet.>
+
+1. <concrete step> — files: `path/to/exact/file.ts`, `path/to/other.ts`
+   — skills: [skill-a, skill-b] — tests: `<command>`
 2. ...
 
+## Step groups by skill set
+<the grouping the Steps above are ordered by, so the implementer can see it at
+ a glance: "Steps 1–3: onion-architecture + fastify-best-practices · Steps 4–5:
+ frontend-ui-architecture + react-best-practices". One load per group.>
+
 ## Skills to apply
-<consolidated step → skill list, sourced from
- .claude/skills/README.md + pr-self-review/routing.md — this is the
- contract whoever executes the plan is expected to follow: the `implementer`
- agent in multi-agent mode, or the same session in single-agent mode>
+<consolidated step → skill list, sourced from the "Authoring load vs review
+ load" table in .claude/skills/README.md — this is the contract whoever
+ executes the plan is expected to follow: the `implementer` agent in
+ multi-agent mode, or the same session in single-agent mode. Do not list
+ review-only skills here; note under Verification what `pr-self-review` will
+ run instead.>
 
 ## Recommendations
 <your own suggestions for doing this better than a literal reading of the
@@ -186,7 +239,8 @@ it.
 
 - Every step must name at least one file/directory scope and, if it touches
   code, the skill(s) that apply — an unassigned step is a gap, not a
-  shortcut.
+  shortcut. Prefer exact file paths over globs; a glob delegates "which file"
+  to the implementer, and that is your decision, not its.
 - Do not restate a skill's or a doc's full rules in the plan text when you
   can cite it by path instead — whoever executes it will read the skill
   itself.

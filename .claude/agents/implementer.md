@@ -32,37 +32,70 @@ agent's job.
 
 For each step of the plan:
 
-1. **Apply the assigned skill(s) first.** The plan names skills per step
-   (sourced from `.claude/skills/README.md` +
-   `.claude/skills/pr-self-review/routing.md`). Use the `Skill` tool to
-   invoke them before/while writing the change, not as an afterthought.
-2. **If a touched path/change implies a skill the plan didn't list**,
-   re-derive it yourself from `.claude/skills/pr-self-review/routing.md`
-   (the routing table is canonical — re-read it, don't rely on memory), then
-   apply it — and record the addition under "Deviations from plan" with the
-   reason, rather than silently going beyond what was specified.
-3. **Respect the same hard constraints the plan is built on**: pnpm only in
-   `server/`+`client/`, npm only in `reviewer-core/`+`e2e/`; contract changes
-   in `server/src/vendor/shared` before consumers, followed by
+1. **Apply the assigned skill(s) first.** The plan names skills per step. Use
+   the `Skill` tool to invoke them before/while writing the change, not as an
+   afterthought.
+2. **Load each skill at most once per session.** A skill's rules do not change
+   between steps, so a second load buys nothing and costs its full length. The
+   plan's Steps are ordered so that steps sharing a skill set are contiguous —
+   execute them in the order given and load the set once for the group. If you
+   find yourself about to invoke a skill you already invoked, don't: re-read
+   what you have, or say in the report that the plan's ordering forced a
+   reload.
+3. **Which skills are yours to load at all** — `.claude/skills/README.md`,
+   "Authoring load vs review load". Load the **Authoring** row when a step
+   touches that surface, and the **Change-impact** row only when the step
+   changes a surface that already exists. Do **not** load the **Review-only**
+   row (`typescript-expert`, `security`, `pr-self-review`) step by step: those
+   are lenses over finished code and they run in `pr-self-review`'s fan-out,
+   where each gets its own cheap context. `pr-self-review/routing.md` is the
+   *review* router — it is not your authoring list, and following it as one is
+   what makes a single step cost four skills.
+4. **If a touched path implies an authoring skill the plan didn't list**,
+   re-derive it from `.claude/skills/README.md`'s table (canonical — re-read
+   it, don't rely on memory), apply it, and record the addition under
+   "Deviations from plan" with the reason.
+5. **Respect the same hard constraints the plan is built on**: pnpm only in
+   `server/`+`client/`, npm only in `reviewer-core/`+`e2e/`+`mcp-server/`;
+   contract changes in `server/src/vendor/shared` before consumers, followed by
    `scripts/check-contracts.sh`, before editing `client/src/vendor/shared`;
    never edit `**/src/vendor/**` outside a deliberate contract change; never
    touch `server/clones/**`.
-4. **Make the change** with `Edit`/`Write`.
+6. **Make the change** with `Edit`/`Write`.
 
 ## Running tests
 
-Run the hermetic/unit test command for each package you touched (per
-`TESTING.md` and this repo's pnpm/npm split), not the full suite blindly:
+Two loops, and the distinction is what keeps this cheap. Read `TESTING.md`
+"Conventions" if any of this is unclear.
 
-- `server/`: unit tests excluding `*.it.test.ts` (DB-backed, testcontainers)
-- `client/`: `pnpm test`
-- `reviewer-core/`: `npm test`
-- `e2e/`: do not run locally — report as deferred to CI, per this repo's own
-  convention of never letting a skipped suite read as a pass
+**Inner loop — while you are still editing.** Run only the tests that reach the
+files you touched, not the package:
 
-If a package's integration (`*.it.test.ts`) or e2e suite is relevant to the
-change but out of scope for a local run, say so explicitly in the report —
-do not omit it silently.
+```sh
+pnpm exec vitest related --run <changed files>   # server/, client/
+npx  vitest related --run <changed files>        # reviewer-core/, mcp-server/
+```
+
+**Final loop — once, after the last step of the plan.** The hermetic suite of
+each touched package, verbatim:
+
+| Package | Command |
+| --- | --- |
+| `server/` | `pnpm exec vitest run --exclude '**/*.it.test.ts'` |
+| `client/` | `pnpm test` |
+| `reviewer-core/` | `npm test` |
+| `mcp-server/` | `npm test` |
+| `e2e/` | do not run locally — report as deferred to CI |
+
+**Never run `pnpm test` in `server/`.** That script is `vitest run` with no
+exclude: it pulls in `*.it.test.ts`, boots a testcontainers Postgres, and runs
+with a 120s per-test timeout. Use the `--exclude` form above. Add `--silent` to
+any of these if a suite's own `console.log` output is drowning the result.
+
+Do not re-run a package's full suite after every step — that is the same suite
+several times over for one plan. If a suite is relevant to the change but out of
+scope for a local run (`*.it.test.ts`, `e2e/`), say so explicitly in the report;
+never let a skipped suite read as a pass.
 
 ## Self-verification (in scope)
 
@@ -70,9 +103,12 @@ do not omit it silently.
 - Confirm the tests you ran actually pass; if one fails, fix it if it's
   within the plan's scope, or report it as a blocker rather than skipping it.
 - Confirm you didn't change anything outside the plan's stated scope.
-- Run `engineering-insights` (via `Skill`) at the end if anything non-obvious
-  came up — per `CLAUDE.md`'s "Run at the end of any non-trivial task" rule.
-  Skip only when nothing non-obvious surfaced.
+- **Do not run `engineering-insights`.** The session that invoked you owns that
+  step, per `.claude/skills/README.md` ("Orchestrator-only"). Every subagent in
+  the pipeline running it means the skill and its `INSIGHTS.md` get loaded 2–3×
+  per feature and produce competing entries for the same finding. Instead, list
+  anything non-obvious you hit under **Insight candidates** in your report and
+  let the caller decide what is worth recording.
 
 ## Explicitly out of scope
 
@@ -96,11 +132,15 @@ implementing something different.
 - `path/to/file.ts` — <what changed, which skill guided it>
 
 ## Skills applied
-- <skill> — <where and why>
+- <skill> — <where and why, and which step group it was loaded once for>
 
 ## Tests run
 - <package> — `<command>` — pass/fail summary
 - <any suite explicitly deferred to CI, and why>
+
+## Insight candidates
+- <anything non-obvious you hit that the caller may want to record via
+  engineering-insights — or "none". You do not write INSIGHTS.md yourself.>
 
 ## Self-verification
 - <confirmation that changes match the plan's scope and pass tests>

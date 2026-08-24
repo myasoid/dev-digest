@@ -16,6 +16,44 @@ move it into `docs/` and delete it here.
 
 ## Decisions
 
+### 2026-08-24 — Authoring agents load skills from their own, narrower table
+
+**What:** `.claude/skills/README.md` now holds an "Authoring load vs review
+load" table — authoring / change-impact / review-only / orchestrator-only — and
+`implementation-planner`, `implementer` and `test-writer` assign and load only
+from it. `pr-self-review/routing.md` stays canonical for **review**. Two rules
+ride along: a skill is loaded at most once per session, and the planner orders
+its Steps so steps sharing a skill set are contiguous so that holds.
+**Why:** `routing.md` is built for fan-out — one subagent per (skill × zone),
+each shown only its own slice (`routing.md` §4) — so twelve routed skills cost
+twelve small contexts. An authoring agent is **one** context and the same table
+drops all of them into it. Concretely: `routing.md:58` routes
+`typescript-expert` (431 lines) to any `.ts`/`.tsx` in any zone, i.e. every step
+of every plan, and one `client/` step pulled `frontend-ui-architecture` +
+`next-best-practices` + `react-best-practices` + `typescript-expert` ≈ 1071
+lines before a line of code was written. `security`, `semver-discipline` and
+`deprecation-policy` are lenses over finished code for the same reason.
+**Rejected:** one routing table for both loads. It reads as consistency, but
+the two have opposite economics, and the review table is the one that has to
+stay exhaustive — shrinking it to suit authoring would have cut gate coverage.
+
+### 2026-08-24 — Verification is two waves, not one parallel fan-out
+
+**What:** `.claude/agents/README.md` previously said `architecture-reviewer`,
+`plan-verifier` and `test-writer` "can run in any order (or be skipped)". Now:
+wave 1 is the two read-only reviewers in parallel, gaps go back to
+`implementer`, and wave 2 is `test-writer` against code that is final.
+**Why:** the claim conflated "independent inputs" with "independent ordering".
+All three consume the Implementation Report, but the reviewers only *read* and
+their findings send work back, while `test-writer` *writes files* against the
+code as it stands. Run in parallel, every gap the verifier finds invalidates
+tests already written — you pay for the suite twice, and the second pass is the
+one where the plan has changed under it.
+**Rejected:** gating `test-writer` behind the reviewers by convention only. The
+ordering is now stated as a wave in the pipeline diagram, because "can be
+skipped" and "can be reordered" had already been read as the same permission
+once.
+
 ### 2026-08-14 — Local review zones are derived from CI `paths:`, not redefined
 
 **What:** `pr-self-review` decides which skills see which files by reading the
@@ -51,9 +89,12 @@ a five-file, one-line-each change.
 
 ### 2026-07-31 — Standalone packages instead of a workspace
 
-**What:** four packages, each with its own `package.json` and lockfile; sharing
-happens through tsconfig path aliases, not published modules. Each suite is
-gated by its own CI workflow with a path filter.
+**What:** standalone packages, each with its own `package.json` and lockfile;
+sharing happens through tsconfig path aliases, not published modules. Each suite
+is gated by its own CI workflow with a path filter.
+**Corrected 2026-08-24:** written as "four packages"; there are now **five** —
+`mcp-server/` was added with `mcp-server.yml`. Do not re-count in prose; the
+list of suites lives in `TESTING.md` and the zone list in `routing.md` §1.
 **Why:** _rationale not recorded anywhere in the repo — fill this in._ Do not
 "fix" this into a workspace before that gap is closed; it is load-bearing for the
 per-package CI path filters.
@@ -230,7 +271,31 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
-_None yet._
+- **2026-08-24** — **A new package silently escapes the lockfile gate**, because
+  `conventions.md` A2.3 enumerates paths instead of deriving them. `mcp-server/`
+  is an npm package (root `AGENTS.md`, "Conventions") yet carries **both**
+  `mcp-server/package-lock.json` **and** `mcp-server/pnpm-lock.yaml`, the second
+  committed in `62520fa` and neither gitignored — i.e. pnpm was run in an npm
+  package, which A2.3 calls CRITICAL. It never fired: that rule's table lists
+  only `reviewer-core/pnpm-lock.yaml` and `e2e/pnpm-lock.yaml`, and
+  `mcp-server/` did not exist when it was written. The same staleness hit
+  `TESTING.md`, which still said "four independent packages" and omitted
+  `mcp-server` from its suite map, and the `implementer`/`test-writer` prompts,
+  which had no test command for it at all. When adding a package, grep the
+  gate's own rule tables for a sibling package name — presence in
+  `routing.md` §1 is not enough, A2.3 is a separate hardcoded list.
+  `git ls-files '*/pnpm-lock.yaml' '*/package-lock.json'` shows the whole
+  picture in one line. `.claude/skills/pr-self-review/conventions.md` (A2.3)
+  **Recurred the same day, A3:** adding the `run-plan` skill directory would
+  have tripped the router self-audit ("a skill exists but has no row in
+  `routing.md` → WARNING"), whose exemption list also enumerated names —
+  `pr-self-review`, `mermaid-diagram`, `engineering-insights`. Fixed by
+  restating A3's exemption **by kind** ("authors or orchestrates rather than
+  reviews") so the list is illustrative, not the rule. Both rules were written
+  when their lists happened to be complete; neither had a way to notice it had
+  stopped being true. When adding a skill or a package, grep
+  `conventions.md` + `routing.md` for a sibling's name before assuming you are
+  covered.
 
 ## Open Questions
 

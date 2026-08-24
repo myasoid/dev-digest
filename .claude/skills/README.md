@@ -7,6 +7,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | Skill | Scope | Description |
 |-------|-------|-------------|
 | [engineering-insights](engineering-insights/SKILL.md) | Project | Read `<module>/INSIGHTS.md` before a task, record what was learned after |
+| [run-plan](run-plan/SKILL.md) | Project | Orchestrates an approved Development Plan: implementer → plan-verifier ∥ architecture-reviewer → fix loop |
 | [pr-self-review](pr-self-review/SKILL.md) | Project | Pre-PR gate — routes the diff to the skills below, blocks on a verified critical |
 | [fastify-best-practices](fastify-best-practices/SKILL.md) | Backend | Fastify routes, plugins, JSON-schema validation, error handling |
 | [drizzle-orm-patterns](drizzle-orm-patterns/SKILL.md) | Backend | Drizzle schema, queries, relations, transactions, migrations |
@@ -23,6 +24,35 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [typescript-expert](typescript-expert/SKILL.md) | Full-stack | Type-level programming, performance, tooling, migrations |
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
+
+## Authoring load vs review load
+
+`pr-self-review/routing.md` is a **review** router. It maps a changed file to the
+skills that should *judge* it, and it is built for fan-out: one subagent per
+(skill × zone), each shown only its own slice of the diff (`routing.md` §4).
+Twelve skills there cost twelve small contexts.
+
+An authoring agent — `implementation-planner` deciding a step, `implementer`
+executing one, `test-writer` writing a test — is **one** context. Reusing the
+review router as an authoring router puts every routed skill into that single
+context, and the cost is not comparable: `typescript-expert` alone is 431 lines,
+and `routing.md` routes it to *any* `.ts`/`.tsx` file in any zone — that is
+every step of every plan. So the two loads are separated.
+
+| Load | Skills | Rule |
+| --- | --- | --- |
+| **Authoring** — read while writing the change | `onion-architecture`, `frontend-ui-architecture`, `fastify-best-practices`, `drizzle-orm-patterns`, `postgresql-table-design`, `next-best-practices`, `react-best-practices`, `react-testing-library`, `zod`, `mermaid-diagram` | Load when a step actually touches that surface. **At most once per session.** |
+| **Change-impact** — read only when an *existing* surface changes | `semver-discipline`, `response-schema`, `deprecation-policy` | Skip entirely on greenfield work. Same rule `spec-creator` already applies (`spec-creator.md`, Step 1). |
+| **Review-only** — a lens over finished code, not guidance for writing it | `typescript-expert`, `security`, `pr-self-review` | Not loaded per step by an authoring agent. `security` stays content-triggered per `routing.md`. `typescript-expert` loads only when the step's own work is type-level (generics, conditional types, a `.d.ts`, a type migration) — not because the file ends in `.ts`. |
+| **Orchestrator-only** | `engineering-insights`, `run-plan` | Belong to the session that owns the task, never to a subagent. `engineering-insights` runs once at the end — loaded per subagent it costs 2–3× per feature and produces competing entries. `run-plan` dispatches subagents, so a subagent invoking it would nest the pipeline inside itself. |
+
+**Load each skill at most once per session.** Its rules do not change between
+steps, so a second load buys nothing. Where several plan steps share a skill
+set, execute them contiguously and load once for the group —
+`implementation-planner` is required to order its Steps that way.
+
+This table governs *authoring only*. It does not shrink review coverage: every
+skill still runs in `pr-self-review`'s fan-out, where it is cheap.
 
 ## What Are Skills?
 
