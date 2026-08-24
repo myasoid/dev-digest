@@ -30,6 +30,22 @@ a contract change reaches every package.
 
 ## Decisions
 
+### 2026-08-18 — `pr_intent` carries `head_sha`, not just confidence/signals/risk_areas
+
+**What:** the Intent Layer's `pr_intent` table got a fourth new column,
+`head_sha` (the PR's head SHA at classification time), beyond the three the
+feature plan's DB step named (`confidence`, `signals_used`, `risk_areas`).
+**Why:** the same plan's client requirement — a staleness indicator "when the
+PR's headSha has changed since the cached intent was computed" — has no way to
+be computed without a snapshot of the SHA the classification ran against;
+`pull_requests.head_sha` alone only gives the CURRENT head, not what the cached
+intent was classified against.
+**Rejected:** leaving staleness unimplemented as an out-of-scope UI nicety —
+the plan listed it as a required panel element, not optional, so dropping it
+would be reading the plan more narrowly than it reads itself.
+`server/src/db/schema/reviews.ts` (`prIntent.headSha`),
+`server/src/vendor/shared/contracts/brief.ts` (`Intent.head_sha`)
+
 ### 2026-07-31 — Schema-first validation at the route boundary
 
 **What:** every route declares Zod `params`/`body`/response schemas from
@@ -67,6 +83,108 @@ _None yet._
 _None yet._
 
 ## Codebase Patterns
+
+- **2026-08-21** — `getBlastRadius`'s caller cap is named and documented
+  per-symbol (`MAX_CALLERS_PER_SYMBOL = 20`, *"Caller fan-out cap per changed
+  symbol"*, `repo-intel/constants.ts`) but applied **globally**:
+  `tryPersistentBlast` merges every changed symbol's callers into one array,
+  sorts it `rank DESC` across all symbols, then ends with
+  `callers.slice(0, MAX_CALLERS_PER_SYMBOL)`. A PR touching 12 symbols gets 20
+  callers *in total*, all belonging to whichever symbols sit in the
+  highest-ranked files; every other changed symbol returns an empty caller list
+  with no truncation flag — indistinguishable from "nothing depends on this",
+  which is the most dangerous wrong answer the feature can give. The general
+  shape to watch for here: a per-group limit applied *after* the groups are
+  flattened silently starves the low-ranked groups. Cap per group, and return
+  the pre-cap count so the consumer can render "20 of 47".
+  `server/src/modules/repo-intel/service.ts:386`, `specs/04-blast-radius.md`
+  **Fixed 2026-08-21 in `server/src/modules/repo-intel/service.ts`**: now
+  groups callers by `viaSymbol`, sorts within each group, and pushes
+  `group.slice(0, MAX_CALLERS_PER_SYMBOL)` — one cap per symbol, not global.
+
+- **2026-08-21** — repo-intel's degraded contract (`degraded?: boolean` +
+  `reason`, per the DEGRADED CONTRACT header in `repo-intel/types.ts`) cannot
+  express a third state, and a third state exists. `tryGetIndexState` marks a
+  row degraded only when `status === 'degraded' || status === 'failed'`
+  (`repository.ts:218`), while `tryPersistentBlast` explicitly *accepts*
+  `status === 'partial'` (`service.ts:320`) and returns `degraded: false` with
+  no `reason`. So a repo that hit the 110 s `INDEX_SOFT_BUDGET_MS` mid-index
+  answers facade reads as though it were fully indexed. The same masking
+  applies to staleness — results are computed at
+  `repo_index_state.last_indexed_sha` and nothing surfaces the skew from the
+  caller's SHA. A consumer that must not present incomplete data as complete
+  has to call `getIndexState()` itself and derive its own tri-state; the
+  boolean will not tell it. `server/src/modules/repo-intel/service.ts:320`,
+  `server/src/modules/repo-intel/repository.ts:218`
+  **Resolved 2026-08-21** via `PrBlastMap` and `blast/service.ts`:
+  `BlastService.getBlastMap` calls `getIndexState()` itself, checks `status
+  === 'partial'` and `indexedSha !== pr.headSha` independently, and derives
+  `BlastStatus` ('ok'/'partial'/'degraded') as a pure function `deriveStatus`
+  — the boolean `BlastResult.degraded` is only the gate for the fully-degraded
+  path. `server/src/modules/blast/service.ts`
+
+- **2026-08-21** — `PrBlastSymbol.callerCount` and `truncated` are now exact:
+  `BlastResult` carries an optional `callerCounts: Record<viaSymbol, number>`
+  populated by `tryPersistentBlast` **before** the per-group
+  `slice(0, MAX_CALLERS_PER_SYMBOL)`. `buildSymbols` reads that field for the
+  true pre-cap total and sets `truncated = total > callers.length` (exact, not
+  a `>= cap` guess). When `callerCounts` is absent (ripgrep/degraded path, no
+  cap applies) `truncated` is always `false`. The old `>= MAX_CALLERS_PER_SYMBOL`
+  heuristic produced two wrong answers: "47 capped to 20" was correct but "exactly
+  20" was a false positive. Threading the pre-cap counts is the minimal change —
+  no re-query needed. `server/src/vendor/shared/contracts/blast.ts`
+  (`callerCounts` field), `server/src/modules/repo-intel/service.ts`
+  (`tryPersistentBlast`), `server/src/modules/blast/service.ts` (`buildSymbols`)
+
+- **2026-08-21** — `@devdigest/shared`'s barrel (`index.ts`) does `export *`
+  from every `contracts/*.ts` file with no collision check beyond what `tsc`
+  catches (a literal duplicate *name* fails to compile). A near-miss —
+  different name, same domain concept — compiles clean and is a pure
+  human-review risk: `contracts/brief.ts` already exports `BlastRadius` (a
+  `PrBrief` summary field: `changed_symbols`/`downstream`/`summary`, produced
+  by the PR-brief classifier), and the new `contracts/blast.ts` needed to add
+  an unrelated `BlastResult` (repo-intel's `getBlastRadius()` facade return
+  type). Before naming a new contract, grep the barrel's existing exports for
+  near-synonyms of the concept, not just an exact-name collision — `tsc` will
+  not warn you either way. `server/src/vendor/shared/contracts/blast.ts`,
+  `server/src/vendor/shared/contracts/brief.ts:74`
+
+- **2026-08-19** — a classifier driven by a hand-written glob-pattern list
+  (`WIRING_PATTERNS`/`BOILERPLATE_PATTERNS` in
+  `server/src/modules/reviews/smart-diff/constants.ts`) reads as complete —
+  every pattern is documented and its own unit tests pass — while still
+  missing a whole naming *convention*, not just one path. `*.config.*` covers
+  `vite.config.ts`-style names but not the equally common bare `config.ts`
+  (e.g. `src/config.ts`), so that file classified as `core` instead of
+  `wiring` until caught by rendering the feature against seeded PR #482 and
+  diffing the result against the feature's design-reference screenshot.
+  Hermetic tests didn't catch it because the missing case was never written
+  as a test — the classifier's own test suite can only be as complete as the
+  author's imagination of file-naming conventions. Fixed by adding a
+  `config.*` pattern to `WIRING_PATTERNS`, plus a negative test
+  (`configurationLoader.ts` must stay `core`) so the fix doesn't regress into
+  a naive substring match. When adding a new pattern-list classifier, verify
+  it against a real rendered example before trusting the pattern list is
+  exhaustive — self-authored unit tests will not surface a convention the
+  author didn't think of. `server/src/modules/reviews/smart-diff/constants.ts`,
+  `server/src/modules/reviews/smart-diff/classifier.test.ts`
+  **Second instance, 2026-08-21 — same failure mode, different subsystem, so
+  treat this as the general rule for every regex/pattern extractor here.**
+  `extractEndpoints` (`src/adapters/codeindex/extract.ts`) matched `app.post(…)`
+  one line at a time, and its fixtures only ever used the single-line form. But
+  wherever a route carries an options object this repo wraps it, putting the
+  path on the *next* line (`app.post(\n  '/repos/:id/blast',`) — 17 of the
+  server's own 54 registrations. Those endpoints were therefore never written to
+  `file_facts`, and blast radius reported `impactedEndpoints: []`, which reads
+  as "this diff reaches no endpoints" rather than "the extractor cannot see
+  them" — a silent wrong answer, not a visible gap. Fixed by matching over a
+  sliding 2-line window (8 for the `{ method, url }` object form) plus a
+  negative test that an unrelated nearby string is not glued onto a bare
+  `app.listen(`. After the fix one changed file surfaced 49 endpoints where it
+  had surfaced 0. Note the second-order trap: changing the extractor does
+  nothing to existing indexes on its own, because an incremental reindex skips
+  unchanged files — `INDEXER_VERSION` must be bumped to force the rebuild.
+  `server/src/adapters/codeindex/extract.ts`, `server/test/extract.test.ts`
 
 - **2026-08-14** — a grouped-by-`X` aggregate query (`GROUP BY skill_id`, one
   round trip for the whole list) and a single-item version of the same
@@ -151,6 +269,26 @@ _None yet._
 
 ## Tool & Library Notes
 
+- **2026-08-21** — Drizzle's `inArray(column, array)` is the correct way to
+  emit `WHERE column = ANY($1)` with proper parameter binding. Writing a raw
+  `sql\`${col} = ANY($1::text[])\`` inline is wrong — Drizzle's parameter
+  counter does not know about the `$1` inside the template literal, so the
+  generated query either binds the wrong slot or fails with a missing-parameter
+  error. `inArray` handles the binding automatically and is what repositories
+  should reach for whenever filtering by membership in a caller-supplied
+  array. `server/src/modules/blast/repository.ts`
+
+- **2026-08-19** — a `/** ... */` JSDoc block comment that quotes a glob
+  pattern ending in `**` immediately followed by a literal `/` (e.g. writing
+  `` `dist/**` `` in prose) closes the comment early: esbuild sees the `*/`
+  inside the text and stops parsing there, then chokes on the next word as
+  invalid syntax (`Expected ";" but found "dist"`). Vitest's `vite:esbuild`
+  transform surfaces this as a failed-to-transform error on the whole file, not
+  a comment warning. Fix: don't write the trailing `**` directly against a
+  `/` in a doc comment — say "a nested `dist` directory" instead of
+  `` `dist/**` ``, or escape it like `` `**\/dist/**` `` if the literal glob
+  must appear. `server/src/modules/reviews/smart-diff/constants.ts`
+
 - **2026-08-14** — capping an uploaded archive's size does **not** cap what it
   decompresses to, and with `fflate` the only place to stop a bomb is the
   per-entry `filter`. `unzipSync` allocates each entry's output buffer from the
@@ -170,6 +308,29 @@ _None yet._
   `server/test/skills-import.test.ts` ("refuses a zip bomb WITHOUT inflating it")
 
 ## Recurring Errors & Fixes
+
+- **2026-08-21** — `export type { X } from 'module'` (a re-export) does NOT
+  bind `X` into the *local* module's scope for further use in that same
+  file — it only makes `X` importable from elsewhere. Promoting
+  `BlastResult`/`BlastChangedSymbol`/`BlastCallerRow`/`DegradedReason` from
+  plain interfaces in `repo-intel/types.ts` to inferred types re-exported
+  from `@devdigest/shared` broke immediately: `RepoIntel.getBlastRadius():
+  Promise<BlastResult>` in that same file needs `BlastResult` as a locally
+  usable type, and a bare `export type {...} from '@devdigest/shared'` does
+  not provide that. Fix: `import type { BlastResult, ... } from
+  '@devdigest/shared'` first, then a separate `export type { BlastResult,
+  ... };` (no `from`) to both use it locally and keep re-exporting it.
+  `server/src/modules/repo-intel/types.ts`
+
+- **2026-08-19** — "zero consumers" for a contract field (the bar for treating
+  a shape change as non-breaking, no deprecation path needed) must be checked
+  against `server/test/contracts.test.ts` too, not just application code —
+  that file's fixture tests `.parse()` a hand-written literal against every
+  exported contract, so a field rename/reshape there (e.g.
+  `SmartDiffFile.finding_lines` → `SmartDiffFile.findings`) makes a previously
+  "unconsumed" contract fail a `ZodError: Required` on the OLD fixture the
+  moment the schema changes, even though no real caller broke.
+  `server/test/contracts.test.ts`
 
 - **2026-08-14** — a repository *update* that returns `Row | undefined` is
   signalling a real read-modify-write race, not type noise, and asserting it

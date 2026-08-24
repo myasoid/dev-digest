@@ -4,6 +4,7 @@ import {
   Finding,
   Intent,
   BlastRadius,
+  BlastResult,
   Risks,
   PrHistory,
   SmartDiff,
@@ -16,6 +17,7 @@ import {
   Repo,
   PrDetail,
   PrMeta,
+  PrBlastMap,
 } from '@devdigest/shared';
 
 /**
@@ -105,12 +107,138 @@ describe('AI contracts parse fixtures', () => {
     ).not.toThrow();
   });
 
+  it('PrBlastMap — ok, partial, degraded variants', () => {
+    // ok status
+    expect(() =>
+      PrBlastMap.parse({
+        status: 'ok',
+        explanation: null,
+        reason: null,
+        indexedSha: 'abc1234',
+        stale: false,
+        symbols: [
+          {
+            file: 'src/payments.ts',
+            name: 'chargeCustomer',
+            kind: 'function',
+            callers: [{ file: 'src/checkout.ts', symbol: 'handleCheckout', viaSymbol: 'chargeCustomer', line: 42, rank: 0.85 }],
+            callerCount: 1,
+            truncated: false,
+          },
+        ],
+        symbolsTruncated: false,
+        endpoints: [{ label: 'POST /checkout', viaFiles: ['src/checkout.ts'], depth: 1 }],
+        crons: [],
+        priorPrs: [],
+        counts: { symbols: 1, callers: 1, endpoints: 1, crons: 0 },
+      }),
+    ).not.toThrow();
+
+    // partial status — truncated callers
+    expect(() =>
+      PrBlastMap.parse({
+        status: 'partial',
+        explanation: 'The index is 4 commits behind this PR\'s head; callers are resolved against `a1b2c3d`.',
+        reason: null,
+        indexedSha: 'a1b2c3d',
+        stale: true,
+        symbols: [],
+        symbolsTruncated: false,
+        endpoints: [],
+        crons: [],
+        priorPrs: [],
+        counts: { symbols: 0, callers: 0, endpoints: 0, crons: 0 },
+      }),
+    ).not.toThrow();
+
+    // degraded status — flag off
+    expect(() =>
+      PrBlastMap.parse({
+        status: 'degraded',
+        explanation: 'Blast radius is disabled: REPO_INTEL_ENABLED is off on the server.',
+        reason: 'flag_off',
+        indexedSha: null,
+        stale: false,
+        symbols: [],
+        symbolsTruncated: false,
+        endpoints: [],
+        crons: [],
+        priorPrs: [],
+        counts: { symbols: 0, callers: 0, endpoints: 0, crons: 0 },
+      }),
+    ).not.toThrow();
+
+    // depth-2 endpoint
+    expect(() =>
+      PrBlastMap.parse({
+        status: 'ok',
+        explanation: null,
+        reason: null,
+        indexedSha: 'deadbeef',
+        stale: false,
+        symbols: [],
+        symbolsTruncated: false,
+        endpoints: [{ label: 'GET /users', viaFiles: ['src/user-service.ts', 'src/router.ts'], depth: 2 }],
+        crons: [{ label: '0 * * * * processQueue', viaFiles: ['src/queue.ts'], depth: 1 }],
+        priorPrs: [{ number: 401, title: 'refactor payments', url: 'https://github.com/acme/app/pull/401', sharedFiles: ['src/payments.ts'] }],
+        counts: { symbols: 0, callers: 0, endpoints: 1, crons: 1 },
+      }),
+    ).not.toThrow();
+  });
+
+  it('BlastResult — persistent path with callerCounts, and degraded path without', () => {
+    // Persistent path: callerCounts present alongside capped callers.
+    expect(() =>
+      BlastResult.parse({
+        changedSymbols: [{ file: 'src/payments.ts', name: 'chargeCard', kind: 'function' }],
+        callers: [
+          { file: 'src/checkout.ts', symbol: 'handleCheckout', viaSymbol: 'chargeCard', line: 15, rank: 0.85 },
+        ],
+        impactedEndpoints: ['POST /checkout'],
+        factsByFile: { 'src/checkout.ts': { endpoints: ['POST /checkout'], crons: [] } },
+        callerCounts: { chargeCard: 47 },
+        degraded: false,
+      }),
+    ).not.toThrow();
+
+    // Degraded/ripgrep path: callerCounts absent, degraded true.
+    expect(() =>
+      BlastResult.parse({
+        changedSymbols: [],
+        callers: [],
+        impactedEndpoints: [],
+        degraded: true,
+        reason: 'no_data',
+      }),
+    ).not.toThrow();
+
+    // callerCounts is optional — omitting it on an otherwise-valid result is fine.
+    expect(() =>
+      BlastResult.parse({
+        changedSymbols: [{ file: 'src/a.ts', name: 'fn', kind: 'function' }],
+        callers: [],
+        impactedEndpoints: [],
+        degraded: false,
+      }),
+    ).not.toThrow();
+  });
+
   it('SmartDiff (data.jsx DIFF)', () => {
     const d = SmartDiff.parse({
       groups: [
         {
           role: 'core',
-          files: [{ path: 'a.ts', additions: 84, deletions: 0, finding_lines: [28, 52] }],
+          files: [
+            {
+              path: 'a.ts',
+              additions: 84,
+              deletions: 0,
+              findings: [
+                { line: 28, severity: 'WARNING' },
+                { line: 52, severity: 'CRITICAL' },
+              ],
+            },
+          ],
         },
       ],
       split_suggestion: { too_big: false, total_lines: 285, proposed_splits: [] },

@@ -49,6 +49,32 @@ not show.
 
 ## What Works
 
+- **2026-08-21** — `BlastPanel` (formerly `BlastTab`) must check
+  `blast.status !== 'ok'` **before** branching on `symbols.length === 0`. The
+  original `BlastTab` had the ok+zero-symbols early-return first, so
+  `status=degraded` with zero symbols rendered the "No downstream impact found"
+  success state instead of the degraded warning banner — a silent, misleading
+  result. The fix: never early-return on zero-symbols alone; instead, guard the
+  symbol tree with `{blast.symbols.length > 0 && …}` inside the main render
+  path, so the banner always renders when `status !== 'ok'`. Both
+  `BlastPanel.test.tsx` tests ("renders explanation verbatim for
+  status=degraded" with `symbols: []`) and ("does NOT render a status banner
+  when status=ok") lock this ordering.
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastPanel/BlastPanel.tsx`
+
+- **2026-08-21** — `BlastPanel` links each `file:line` caller entry to
+  `indexedSha`, NOT to the PR's `head_sha`. The line numbers come from the
+  index, which was built at `indexedSha`; linking against `head_sha` silently
+  opens the wrong line when the PR is ahead of the index. `indexedSha` is
+  passed down from `PrBlastMap` into `SymbolRow`, which calls
+  `githubBlobUrl(repoFullName, indexedSha, caller.file, caller.line)`. When
+  `indexedSha` is `null`, the href is omitted and `MonoLink` renders a
+  `<button>` instead of an `<a>` — never a broken link. Tests guard this
+  invariant in `BlastPanel.test.tsx` ("links contain indexedSha, not head_sha"
+  and "plain text when indexedSha is null").
+  **Updated 2026-08-21: renamed from `BlastTab` → `BlastPanel`.**
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastPanel/BlastPanel.tsx`
+
 - **2026-08-14** — When a clickable container (`PRRow`, `AgentCard`,
   `FindingCard`/`PromptBlock` headers) gains `role="button"` + `onKeyDown`, add
   `if (e.target !== e.currentTarget) return;` as the handler's first line.
@@ -105,6 +131,49 @@ not show.
   `client/src/app/repos/[repoId]/pulls/styles.ts:89`
 
 ## Codebase Patterns
+
+- **2026-08-21** — a flex row of `[badge] [name flex:1 minWidth:0] [path
+  maxWidth:200] [count]` reads fine at full width and silently collapses the
+  **name to `width: 0`** when the same component is dropped into a half-width
+  column. Only the `flex:1 minWidth:0` child can shrink, so every fixed sibling
+  is paid for out of it first. This shipped: moving `BlastPanel` from a
+  full-width tab into the two-column Overview grid rendered every row as
+  `FUNCTION  client/…  1 caller` — with the symbol name, the one thing the row
+  exists to show, absent rather than truncated. `textOverflow: ellipsis` gives
+  no warning here; at zero width there is nothing to ellipsise. Fix: stack the
+  secondary text under the primary (`symbolMain` column) so they never compete
+  for the same line, and give long paths `direction: rtl` so truncation eats
+  the directory prefix instead of the filename. Check any flex row you move
+  into a narrower container by asserting the name element's
+  `getBoundingClientRect().width > 0` — a DOM assertion, since a screenshot at
+  the old width will not show it.
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastPanel/styles.ts`
+
+- **2026-08-21** — when a component family shares one `useTranslations` call
+  at the top level but has private sub-components that also need translated
+  strings, pass `t` as an explicit prop typed
+  `ReturnType<typeof useTranslations<"blast">>` rather than calling
+  `useTranslations` again inside each sub-component. Repeated calls in the
+  same render tree are safe (next-intl memoises), but the explicit prop keeps
+  sub-components pure (testable without a provider) and makes the dependency
+  visible in the signature. Pattern used throughout `BlastPanel` —
+  `CountsStrip`, `SymbolRow`, `TargetChip`, `EndpointsSection`,
+  `CronsSection`, `PriorPrsSection` each receive `t` from the parent.
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastPanel/BlastPanel.tsx`
+
+- **2026-08-19** — when a new feature needs one more capability from an
+  existing shared render component (`FileCard`/`CodeLine` in
+  `client/src/components/diff-viewer`), extend it with OPTIONAL props that
+  default to the prior behaviour rather than forking a second copy.
+  `SmartDiffViewer`'s "click a finding → auto-expand + scroll + highlight that
+  line" needed `FileCard` to accept a controlled `open`/`onOpenChange` (falls
+  back to the original size-based auto-expand `useState` when omitted) and
+  `highlightLine`/`onHighlightMount` (only affects rendering when a line
+  number is passed). Every existing caller (`DiffViewer`) passes neither prop
+  and is byte-for-byte unaffected — confirmed by the untouched existing
+  behaviour still passing after the change, not just by reading the diff.
+  `client/src/components/diff-viewer/FileCard/FileCard.tsx`,
+  `client/src/components/diff-viewer/CodeLine/CodeLine.tsx`
 
 - **2026-08-14** — `client/src/vendor/ui/` is documented as "do not touch"
   (root `AGENTS.md`), but a NEW feature's sidebar entry has to land in

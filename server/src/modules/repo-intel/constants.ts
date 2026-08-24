@@ -35,8 +35,14 @@ export const MAX_CALLERS_PER_SYMBOL = 20;
  *
  * v2 (T3): graph + decl_file resolution + file_rank + repo-map landed, so every
  * T2 `partial` index must be rebuilt to gain the rank-driven data.
+ *
+ * v3: `extractEndpoints` moved from a per-line scan to a sliding window, so it
+ * now sees registrations whose path sits on the line after the verb. Every v2
+ * index has `file_facts` rows missing those endpoints — and an incremental
+ * reindex would not rewrite them, since the source files are unchanged. Only a
+ * version bump forces the full rebuild that repopulates the facts.
  */
-export const INDEXER_VERSION = 2;
+export const INDEXER_VERSION = 3;
 
 // --- [T2] Full-index limits (documented now, enforced in the pipeline) ------
 export const MAX_INDEXED_FILES = 5000;

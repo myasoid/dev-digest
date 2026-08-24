@@ -1,0 +1,47 @@
+# mcp-server suite — the local stdio MCP server exposing 5 tools over
+# DevDigest's already-running HTTP API. All-hermetic (mocked fetch, no DB, no
+# live server dependency). Uses npm (package-lock.json).
+#
+# No lint step: unlike reviewer-core, this package has no purity-enforcing
+# eslint config yet, so there is nothing for a lint step to check.
+name: mcp-server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp-server/**'
+      - '.github/workflows/mcp-server.yml'
+  pull_request:
+    paths:
+      - 'mcp-server/**'
+      - '.github/workflows/mcp-server.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test

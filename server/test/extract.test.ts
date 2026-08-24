@@ -90,6 +90,54 @@ app.get<{ Params: { id: string } }>('/pulls/:id/blast', blast);
     expect(eps).toContain('GET /pulls/:id/blast');
   });
 
+  // The wrapped form is the convention wherever a route carries an options
+  // object, and a per-line scan missed all of them — 17 of this repo's own 54
+  // registrations, which showed up as an empty blast-radius endpoint list.
+  it('detects a registration whose path is on the line after the verb', () => {
+    const src = `
+  app.post(
+    '/repos/:id/blast',
+    {
+      schema: { params: IdParams },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req) => handler(req),
+  );
+
+  app.get<{ Params: Id }>(
+    '/pulls/:id/intent',
+    { schema: { params: IdParams } },
+    handler,
+  );
+`;
+    const eps = extractEndpoints(src);
+    expect(eps).toContain('POST /repos/:id/blast');
+    expect(eps).toContain('GET /pulls/:id/intent');
+  });
+
+  it('detects a { method, url } route object spread over several lines', () => {
+    const src = `
+app.route({
+  method: 'PATCH',
+  url: '/findings/:id',
+  handler,
+});
+`;
+    expect(extractEndpoints(src)).toContain('PATCH /findings/:id');
+  });
+
+  // The window must not glue an unrelated later string onto a bare verb call.
+  it('does not invent an endpoint from an unrelated nearby string', () => {
+    const src = `
+const url = buildUrl();
+app.listen(
+  { port: 3001 },
+);
+logger.info('/not-a-route');
+`;
+    expect(extractEndpoints(src)).toEqual([]);
+  });
+
   it('detects cron expressions and background job kinds', () => {
     const src = `
 cron.schedule('*/5 * * * *', poll);

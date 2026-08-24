@@ -8,11 +8,13 @@ import { api, API_BASE } from "../api";
 import { notify } from "../toast";
 import type {
   FindingActionKind,
+  Intent,
   PrReviewComment,
   ReviewRecord,
   ReviewRunResponse,
   RunEvent,
   RunSummary,
+  SmartDiff,
 } from "@devdigest/shared";
 
 // ---- Active (in-flight) runs — server-side source of truth ----
@@ -52,6 +54,17 @@ export function usePrReviews(prId: string | null | undefined) {
   return useQuery({
     queryKey: ["reviews", prId],
     queryFn: () => api.get<ReviewRecord[]>(`/pulls/${prId}/reviews`),
+    enabled: !!prId,
+  });
+}
+
+/** Smart Diff for a PR: `pr_files` grouped by role (core/wiring/boilerplate),
+ *  each file annotated with the latest review's non-dismissed findings
+ *  (severity included — see `@devdigest/shared`'s `SmartDiffFile`). */
+export function useSmartDiff(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["smart-diff", prId],
+    queryFn: () => api.get<SmartDiff>(`/pulls/${prId}/smart-diff`),
     enabled: !!prId,
   });
 }
@@ -213,4 +226,24 @@ export function useRunEvents(runIds: string[]) {
   }, [key]);
 
   return { events, running };
+}
+
+// ---- PR Intent Layer -------------------------------------------------------
+/** The cached intent for a PR (`null` when never classified). Never triggers
+ *  a classification itself — that happens on first review, or via refresh. */
+export function usePrIntent(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["pr-intent", prId],
+    queryFn: () => api.get<Intent | null>(`/pulls/${prId}/intent`),
+    enabled: !!prId,
+  });
+}
+
+/** Force a fresh classification (ignores any cache) via the manual refresh route. */
+export function useRefreshIntent(prId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<Intent>(`/pulls/${prId}/intent/refresh`),
+    onSuccess: (intent) => qc.setQueryData(["pr-intent", prId], intent),
+  });
 }
