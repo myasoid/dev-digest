@@ -1,5 +1,5 @@
 import { and, asc, count, countDistinct, desc, eq, gte, sql } from 'drizzle-orm';
-import type { Db } from '../../db/client.js';
+import type { Db, Executor } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { SkillSource, SkillType } from '@devdigest/shared';
 import { INITIAL_SKILL_VERSION } from './constants.js';
@@ -59,9 +59,14 @@ export class SkillsRepository {
    * Delete a skill. `agent_skills` rows cascade, so any agent that linked it
    * silently loses it from its prompt — see the open question in
    * specs/01-skills.md. Returns false when no such skill existed here.
+   *
+   * Accepts an `Executor` (defaulting to this repository's own `db`) so the
+   * caller (`SkillsService.delete`) can run this inside the SAME transaction
+   * as `context_doc_links` cleanup — see `AgentsRepository.deleteById`'s doc
+   * comment for why that cascade is application code here.
    */
-  async deleteById(workspaceId: string, id: string): Promise<boolean> {
-    const rows = await this.db
+  async deleteById(workspaceId: string, id: string, executor: Executor = this.db): Promise<boolean> {
+    const rows = await executor
       .delete(t.skills)
       .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.id, id)))
       .returning({ id: t.skills.id });

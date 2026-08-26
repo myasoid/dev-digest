@@ -1,7 +1,8 @@
 # client/specs
 
-One file per UI feature: `NN-feature-name.md`. If it also needs a new endpoint,
-put the spec in the root `../../specs/` so both sides stay in one document.
+One file per UI feature: `YYYY-MM-DD-feature-name.md`. If it also needs a new
+endpoint, put the spec in the root `../../specs/` so both sides stay in one
+document.
 
 ```markdown
 # <Feature>

@@ -220,6 +220,16 @@ not show.
 
 ## Tool & Library Notes
 
+- **2026-08-26** — ESLint rules that catch real bugs
+  (`jsx-a11y/no-noninteractive-element-interactions`,
+  `@typescript-eslint/no-non-null-assertion`, `no-unused-vars`) only run as
+  part of `next build`'s lint step in this repo — `pnpm typecheck` and
+  `pnpm test` both stay fully green on code that fails the build. Two real
+  findings (an a11y violation on a non-interactive listener, a banned `!`)
+  surfaced only when `pnpm build` ran, after `typecheck` + `test` had already
+  passed clean. Run `pnpm build` before calling client work done — the faster
+  typecheck+test loop will not catch these.
+
 - **2026-08-14** — A wrapper `<div onClick={(e) => e.stopPropagation()}>` whose
   only job is to keep a click off the parent trips both
   `jsx-a11y/no-static-element-interactions` and

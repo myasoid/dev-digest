@@ -1,8 +1,18 @@
 # specs/ — cross-package
 
 Forward-looking specs for work that spans more than one package. One file per
-feature: `NN-feature-name.md`. Work that lives inside a single package goes in
-that package's `specs/` instead.
+feature: `YYYY-MM-DD-feature-name.md`, the date being the day the spec was
+written. Work that lives inside a single package goes in that package's
+`specs/` instead.
+
+**The naming changed on 2026-08-25** — it used to be `NN-feature-name.md`. A
+date sorts chronologically on its own, needs no lookup to pick, and cannot
+collide when two specs are written in the same week; "the next free number" was
+a read of the whole folder that two people could do concurrently and both get
+`05`. The specs numbered `01`–`04` keep their names: they are cited by path
+from roughly forty places, including source comments and both vendored copies
+of `@devdigest/shared`, so renaming them is a repo-wide edit for no gain. New
+specs use the date form.
 
 A spec describes **what to build and why it is done** — not how the code works
 today (that is `docs/`) and not what we already rejected (that is `INSIGHTS.md`).
@@ -40,7 +50,12 @@ Copy, `reviewer-core/specs/` adds Prompt slots / Public API / Grounding impact
 
 **`Spec ID`** scope is the folder: `cross` for this directory, otherwise the
 package name — `SPEC-cross-05`, `SPEC-server-03`. Numbering is per folder, so
-the scope is what keeps IDs unique across them.
+the scope is what keeps IDs unique across them. The ID keeps its number even
+though the filename no longer carries one: it is a short, stable handle for
+citing a spec in a plan or a commit, which a date-and-slug filename is not.
+Because the folder listing no longer shows the numbers, take the next free one
+by reading the `Spec ID:` lines — `rg '^\*\*Spec ID:' specs/` — not by counting
+files.
 
 **`Goals / Non-goals`** replaces the older `Scope — in / out` heading. Non-goals
 is where a considered-and-declined proposal goes, with the reason it was
@@ -52,9 +67,10 @@ which of those is attacker- or author-controlled and the required handling —
 boundary validation, escaping, authorization, and, for anything reaching a
 model, that it is data and never instructions.
 
-**`Created`** is an ISO date, `YYYY-MM-DD`. The date is not part of the
-filename — `NN-` ordering does that job; the field records *when* the decision
-was made, which the number does not.
+**`Created`** is an ISO date, `YYYY-MM-DD`, and it matches the date in the
+filename. Take it from `date +%F` rather than from memory — a wrong date now
+mis-names the file as well as the field, and the filename is the harder of the
+two to correct later.
 
 **Annotation.** User stories, acceptance criteria and edge cases are numbered
 `US-n`, `AC-n`, `EC-n`, and every criterion carries two annotations:
@@ -75,8 +91,8 @@ with `truncated: true` set for that symbol.
   `test-writer` works from exactly this. Naming the kind is in scope; naming
   the test file or function is implementation and is not.
 
-The four specs already in this directory predate this shape. They are not being
-retrofitted — read them as they are.
+The four numbered specs in this directory predate both this shape and this
+naming. They are not being retrofitted — read them as they are.
 
 ## What belongs in a spec — and what does not
 

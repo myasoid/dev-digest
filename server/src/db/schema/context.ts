@@ -9,6 +9,7 @@ import {
   vector,
   index,
   uniqueIndex,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { repos } from './repos';
@@ -124,3 +125,32 @@ export const onboarding = pgTable('onboarding', {
   json: jsonb('json').notNull(),
   generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+/**
+ * Project Context attachment — a document (identified by its repository-
+ * relative path, NOT a document id: a document is a file in a working copy,
+ * never a row anywhere) attached to an agent or a skill, with an explicit
+ * order. Mirrors `agent_skills` (membership + order, no `enabled` column —
+ * attachment IS enablement, `specs/01-skills.md`).
+ *
+ * `owner_id` is POLYMORPHIC (an agent or skill id) and therefore carries no
+ * FK — Postgres cannot reference two parent tables from one column. The
+ * cascade-delete the spec asks for is implemented in `AgentsService.delete` /
+ * `SkillsService.delete` instead, in the same transaction as the owner row's
+ * delete (see `modules/agents/repository.ts`, `modules/skills/repository.ts`).
+ *
+ * `path` is the leading column of the composite PK below, so it is bounded
+ * (`MAX_CONTEXT_DOC_PATH_CHARS` in `@devdigest/shared`, enforced again here)
+ * BEFORE it ever reaches this btree — Postgres rejects an index row over
+ * ~2704 bytes, the same failure `MAX_INDEXED_NAME_LEN` above guards against.
+ */
+export const contextDocLinks = pgTable(
+  'context_doc_links',
+  {
+    ownerKind: text('owner_kind', { enum: ['agent', 'skill'] }).notNull(),
+    ownerId: uuid('owner_id').notNull(),
+    path: text('path').notNull(),
+    order: integer('order').notNull().default(0),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.ownerKind, t.ownerId, t.path] }) }),
+);

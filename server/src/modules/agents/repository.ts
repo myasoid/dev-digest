@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
-import type { Db } from '../../db/client.js';
+import type { Db, Executor } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
 import { DEFAULT_AGENT_DESCRIPTION, INITIAL_AGENT_VERSION } from './constants.js';
@@ -79,11 +79,19 @@ export class AgentsRepository {
     return row;
   }
 
-  /** Delete an agent (scoped to workspace). Versions/skill-links cascade;
-   *  agent_runs keep their history with agent_id set null. Returns false if
-   *  no such agent existed in the workspace. */
-  async deleteById(workspaceId: string, id: string): Promise<boolean> {
-    const rows = await this.db
+  /**
+   * Delete an agent (scoped to workspace). Versions/skill-links cascade via
+   * FK; `agent_runs` keep their history with `agent_id` set null. Returns
+   * false if no such agent existed in the workspace.
+   *
+   * Accepts an `Executor` (defaulting to this repository's own `db`) so the
+   * caller (`AgentsService.delete`) can run this inside the SAME transaction
+   * as `context_doc_links` cleanup — the polymorphic `owner_id` there has no
+   * FK, so that cascade is application code, not the database's (see
+   * `db/schema/context.ts`'s `contextDocLinks` doc comment).
+   */
+  async deleteById(workspaceId: string, id: string, executor: Executor = this.db): Promise<boolean> {
+    const rows = await executor
       .delete(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, id)))
       .returning({ id: t.agents.id });

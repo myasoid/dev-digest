@@ -85,6 +85,11 @@ export function SkillCard({
             </Badge>
           </span>
         )}
+        {skill.context_doc_count != null && (
+          <Badge color="var(--text-muted)" icon="FileText">
+            {t("card.contextDocCount", { count: skill.context_doc_count })}
+          </Badge>
+        )}
       </div>
 
       {footer && <div style={s.statsRow}>{footer}</div>}

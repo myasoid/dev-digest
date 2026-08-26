@@ -31,6 +31,9 @@ import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
 import { type Tokenizer, TiktokenTokenizer } from '../adapters/tokenizer/index.js';
 import type { TicketFetcher } from '../adapters/tickets/types.js';
 import { HttpTicketFetcher } from '../adapters/tickets/http.js';
+import type { ContextDocsPort } from '../adapters/context-docs/types.js';
+import { FsContextDocsAdapter } from '../adapters/context-docs/fs.js';
+import { ContextDocsRepository } from '../modules/project-context/repository.js';
 
 /**
  * DI container. One per app instance. Holds config, db, the JobRunner,
@@ -55,6 +58,8 @@ export interface ContainerOverrides {
   tokenizer?: Tokenizer;
   /** Intent Layer — best-effort external ticket/plan URL resolution. */
   ticketFetcher?: TicketFetcher;
+  /** Project Context — read-only `.devdigest/{specs,docs,insights}` port. */
+  contextDocs?: ContextDocsPort;
 }
 
 export class Container {
@@ -81,6 +86,8 @@ export class Container {
   private _tokenizer?: Tokenizer;
   private _priceBook?: PriceBook;
   private _ticketFetcher?: TicketFetcher;
+  private _contextDocs?: ContextDocsPort;
+  private _contextDocsRepo?: ContextDocsRepository;
 
   constructor(config: AppConfig, db: Db, private overrides: ContainerOverrides = {}) {
     this.config = config;
@@ -103,6 +110,16 @@ export class Container {
 
   get reviewRepo(): ReviewRepository {
     return (this._reviewRepo ??= new ReviewRepository(this.db));
+  }
+
+  /**
+   * `context_doc_links` data-access, shared across modules the same way
+   * `agentsRepo` is: `run-executor.ts` reaches attachment links through this
+   * getter, never by importing `modules/project-context/repository.ts`
+   * directly (`onion-architecture` §Instructions 1).
+   */
+  get contextDocsRepo(): ContextDocsRepository {
+    return (this._contextDocsRepo ??= new ContextDocsRepository(this.db));
   }
 
   get codeIndex(): CodeIndex {
@@ -145,6 +162,18 @@ export class Container {
     if (this.overrides.ticketFetcher) return this.overrides.ticketFetcher;
     this._ticketFetcher ??= new HttpTicketFetcher();
     return this._ticketFetcher;
+  }
+
+  /**
+   * Read-only Project Context document port. Tests inject a deterministic
+   * fake via `ContainerOverrides.contextDocs` (`MockContextDocsPort`); the
+   * real adapter walks/reads a repository working copy's
+   * `.devdigest/{specs,docs,insights}`.
+   */
+  get contextDocs(): ContextDocsPort {
+    if (this.overrides.contextDocs) return this.overrides.contextDocs;
+    this._contextDocs ??= new FsContextDocsAdapter();
+    return this._contextDocs;
   }
 
   /**

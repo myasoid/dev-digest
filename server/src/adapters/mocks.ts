@@ -34,6 +34,13 @@ import type {
 } from '@devdigest/shared';
 import { parseUnifiedDiff } from './git/diff-parser.js';
 import type { TicketFetcher } from './tickets/types.js';
+import {
+  ContextDocReadError,
+  typeForContextDocPath,
+  type ContextDocListResult,
+  type ContextDocsPort,
+} from './context-docs/types.js';
+import { MAX_CONTEXT_DOCS } from './context-docs/constants.js';
 
 /**
  * Deterministic MOCK adapters for tests/dev — NO real network. Each mirrors the
@@ -329,6 +336,37 @@ export class MockSecretsProvider implements SecretsProvider {
   constructor(private secrets: Partial<Record<string, string>> = {}) {}
   async get(key: SecretKey): Promise<string | undefined> {
     return this.secrets[key as string];
+  }
+}
+
+// ---------- Mock ContextDocsPort (Project Context) ----------
+/**
+ * Deterministic fake keyed by repo-relative path → content (e.g.
+ * `"specs/public-api.md"`). Ignores `clonePath` — what makes AC-1…AC-11
+ * testable without a real clone. `read()` mirrors the real adapter's
+ * behaviour: an unknown path throws `ContextDocReadError`, never returns
+ * partial/undefined content. `list()` mirrors the real adapter's
+ * `{ docs, truncated }` shape and honours `MAX_CONTEXT_DOCS` (NFR-13) so a
+ * test can exercise the truncated-list state without a real clone either.
+ */
+export class MockContextDocsPort implements ContextDocsPort {
+  constructor(private files: Record<string, string> = {}) {}
+
+  async list(_clonePath: string): Promise<ContextDocListResult> {
+    const all = Object.entries(this.files).map(([path, content]) => ({
+      path,
+      type: typeForContextDocPath(path),
+      size: Buffer.byteLength(content, 'utf8'),
+      updatedAt: '2026-06-01T00:00:00Z',
+    }));
+    const truncated = all.length > MAX_CONTEXT_DOCS;
+    return { docs: truncated ? all.slice(0, MAX_CONTEXT_DOCS) : all, truncated };
+  }
+
+  async read(_clonePath: string, path: string): Promise<string> {
+    const content = this.files[path];
+    if (content === undefined) throw new ContextDocReadError(path, 'not found');
+    return content;
   }
 }
 

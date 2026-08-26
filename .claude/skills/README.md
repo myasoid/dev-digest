@@ -8,6 +8,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 |-------|-------|-------------|
 | [engineering-insights](engineering-insights/SKILL.md) | Project | Read `<module>/INSIGHTS.md` before a task, record what was learned after |
 | [run-plan](run-plan/SKILL.md) | Project | Orchestrates an approved Development Plan: implementer → plan-verifier ∥ architecture-reviewer → fix loop |
+| [workflow-retro](workflow-retro/SKILL.md) | Project | Retrospective on a multi-agent **run** — agent count/order, real concurrency, cache-weighted cost, duplicated grounding |
 | [pr-self-review](pr-self-review/SKILL.md) | Project | Pre-PR gate — routes the diff to the skills below, blocks on a verified critical |
 | [fastify-best-practices](fastify-best-practices/SKILL.md) | Backend | Fastify routes, plugins, JSON-schema validation, error handling |
 | [drizzle-orm-patterns](drizzle-orm-patterns/SKILL.md) | Backend | Drizzle schema, queries, relations, transactions, migrations |
@@ -44,7 +45,7 @@ every step of every plan. So the two loads are separated.
 | **Authoring** — read while writing the change | `onion-architecture`, `frontend-ui-architecture`, `fastify-best-practices`, `drizzle-orm-patterns`, `postgresql-table-design`, `next-best-practices`, `react-best-practices`, `react-testing-library`, `zod`, `mermaid-diagram` | Load when a step actually touches that surface. **At most once per session.** |
 | **Change-impact** — read only when an *existing* surface changes | `semver-discipline`, `response-schema`, `deprecation-policy` | Skip entirely on greenfield work. Same rule `spec-creator` already applies (`spec-creator.md`, Step 1). |
 | **Review-only** — a lens over finished code, not guidance for writing it | `typescript-expert`, `security`, `pr-self-review` | Not loaded per step by an authoring agent. `security` stays content-triggered per `routing.md`. `typescript-expert` loads only when the step's own work is type-level (generics, conditional types, a `.d.ts`, a type migration) — not because the file ends in `.ts`. |
-| **Orchestrator-only** | `engineering-insights`, `run-plan` | Belong to the session that owns the task, never to a subagent. `engineering-insights` runs once at the end — loaded per subagent it costs 2–3× per feature and produces competing entries. `run-plan` dispatches subagents, so a subagent invoking it would nest the pipeline inside itself. |
+| **Orchestrator-only** | `engineering-insights`, `run-plan`, `workflow-retro` | Belong to the session that owns the task, never to a subagent. `engineering-insights` runs once at the end — loaded per subagent it costs 2–3× per feature and produces competing entries. `run-plan` dispatches subagents, so a subagent invoking it would nest the pipeline inside itself. `workflow-retro` reads the *parent* session's transcripts, which a subagent cannot see at all. |
 
 **Load each skill at most once per session.** Its rules do not change between
 steps, so a second load buys nothing. Where several plan steps share a skill

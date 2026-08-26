@@ -4,6 +4,21 @@ import { schema } from './schema.js';
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
+/**
+ * The transaction handle `db.transaction(async (tx) => ...)` passes to its
+ * callback — same query-builder surface as `Db` (`.select`/`.insert`/
+ * `.update`/`.delete`), scoped to one transaction. Extracted here so a
+ * repository method that must run INSIDE a caller's transaction (e.g.
+ * deleting an owner row and its `context_doc_links` atomically) can accept
+ * either a plain `Db` or a `Tx` without a second copy of the method.
+ */
+export type Tx = Parameters<Db['transaction']>[0] extends (tx: infer T, ...rest: never[]) => unknown
+  ? T
+  : never;
+
+/** Either the top-level `Db` or a transaction handle — whatever a query builder call accepts. */
+export type Executor = Db | Tx;
+
 export interface DbHandle {
   db: Db;
   sql: postgres.Sql;

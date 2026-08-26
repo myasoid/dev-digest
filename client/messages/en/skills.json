@@ -39,6 +39,7 @@
     "tabs": {
       "config": "Config",
       "preview": "Preview",
+      "context": "Context",
       "evals": "Evals",
       "stats": "Stats",
       "versions": "Versions"
@@ -98,7 +99,8 @@
   "card": {
     "usedBy": "{count, plural, one {# agent} other {# agents}}",
     "pull": "{pct}% pull",
-    "accept": "{pct}% accept"
+    "accept": "{pct}% accept",
+    "contextDocCount": "{count} docs"
   },
   "listItem": {
     "needsVetting": "needs vetting",

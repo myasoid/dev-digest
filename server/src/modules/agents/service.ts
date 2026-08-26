@@ -57,11 +57,14 @@ export class AgentsService {
   }
 
   async list(workspaceId: string): Promise<Agent[]> {
-    const [rows, counts] = await Promise.all([
+    const [rows, counts, contextDocCounts] = await Promise.all([
       this.repo.list(workspaceId),
       this.repo.skillCounts(workspaceId),
+      this.container.contextDocsRepo.linkCounts(workspaceId, 'agent'),
     ]);
-    return rows.map((row) => toAgentDto(row, counts.get(row.id) ?? 0));
+    return rows.map((row) =>
+      toAgentDto(row, counts.get(row.id) ?? 0, contextDocCounts.get(row.id) ?? 0),
+    );
   }
 
   async get(workspaceId: string, id: string): Promise<Agent | undefined> {
@@ -69,12 +72,26 @@ export class AgentsService {
     if (!row) return undefined;
     // Counted in SQL, not by loading the links: `linkedSkills` selects whole
     // skill rows, and a skill body can be up to 200k chars.
-    return toAgentDto(row, await this.repo.skillCount(id));
+    const [skillCount, contextDocCounts] = await Promise.all([
+      this.repo.skillCount(id),
+      this.container.contextDocsRepo.linkCounts(workspaceId, 'agent', id),
+    ]);
+    return toAgentDto(row, skillCount, contextDocCounts.get(id) ?? 0);
   }
 
-  /** Delete an agent (and its versions/skill-links, via cascade). */
+  /**
+   * Delete an agent (and its versions/skill-links, via FK cascade) AND its
+   * `context_doc_links` rows, in ONE transaction — the polymorphic owner_id
+   * has no FK to cascade this on its own (AC-21's neighbour concern: this
+   * path must never touch `agents.version` or write an `agent_versions`
+   * snapshot, and it doesn't — it only deletes).
+   */
   async delete(workspaceId: string, id: string): Promise<boolean> {
-    return this.repo.deleteById(workspaceId, id);
+    return this.container.db.transaction(async (tx) => {
+      const deleted = await this.repo.deleteById(workspaceId, id, tx);
+      if (deleted) await this.container.contextDocsRepo.deleteLinksForOwner(tx, 'agent', id);
+      return deleted;
+    });
   }
 
   async create(workspaceId: string, input: CreateAgentInput, userId?: string): Promise<Agent> {

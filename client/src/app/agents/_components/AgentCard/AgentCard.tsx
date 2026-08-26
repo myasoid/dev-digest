@@ -90,6 +90,11 @@ export function AgentCard({
             {t("card.skillCount", { count: skillCount })}
           </Badge>
         )}
+        {ag.context_doc_count != null && (
+          <Badge color="var(--text-secondary)" icon="FileText">
+            {t("card.contextDocCount", { count: ag.context_doc_count })}
+          </Badge>
+        )}
       </div>
     </div>
   );

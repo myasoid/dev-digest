@@ -1,0 +1,63 @@
+{
+  "name": "Attaching Project Context documents on an agent and a skill persists across a reload",
+  "description": "The FIRST mutating flow in this suite (R-11) — every other flow targets read-only seeded data (e2e/README.md), but AC-13/AC-14/AC-15 are specifically about persistence, which a read-only flow cannot exercise. Safe only because the hermetic stack's Postgres is ephemeral and fresh per run, and because flow 11 runs strictly after flow 10 (lexical filename order — run.ts sorts specs/*.flow.json) so nothing it writes is visible to an already-completed assertion. Toggles a document on the seeded Security Reviewer agent's Context tab, hard-reloads (a fresh 'open', not a client-side navigation, so the check is against the SERVER, not React Query's in-memory cache), and confirms it is still attached (AC-13). Attaches a second document in a deliberate click order and confirms BOTH survive the same reload, exercising the persisted `order` column the same way a drag would (AC-14) — literal pointer-drag / keyboard-arrow reordering is NOT driven here because agent-browser's allowed, deterministic command set (open/wait/find — see AGENTS.md) has no drag or key-press primitive; the pure reorder/dedup logic itself (`arrangeDocs`/`moveItem`/`attachedPathsInOrder`) is covered by the hermetic unit tests in client/src/components/context-docs/helpers.test.ts. Then attaches a document on the seeded uncovered-branch-gate skill's Context tab and confirms it too survives a reload (AC-15).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/agents"], "label": "load the agents page" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agents fetch settles" },
+    { "cmd": ["find", "text", "Security Reviewer", "click"], "label": "open the seeded agent" },
+    { "cmd": ["wait", "--url", "/agents/"], "label": "agent editor route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agent fetch settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Context"], "label": "switch to the agent's Context tab" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "documents + links fetch settles" },
+    { "cmd": ["wait", "--text", "0 of 3 attached"], "label": "starts with nothing attached" },
+    {
+      "cmd": ["find", "role", "checkbox", "click", "--name", "specs/public-api.md"],
+      "label": "attach the seeded spec document"
+    },
+    { "cmd": ["wait", "--text", "1 of 3 attached"], "label": "attached count updates" },
+
+    { "cmd": ["open", "{BASE}/agents"], "label": "hard reload back to the agents list (fresh page load, not SPA nav)" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agents fetch settles" },
+    { "cmd": ["find", "text", "Security Reviewer", "click"], "label": "re-open the same agent" },
+    { "cmd": ["wait", "--url", "/agents/"], "label": "agent editor route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agent fetch settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Context"], "label": "switch to the Context tab again" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "documents + links fetch settles" },
+    { "cmd": ["wait", "--text", "1 of 3 attached"], "label": "still attached after the reload (AC-13)" },
+
+    {
+      "cmd": ["find", "role", "checkbox", "click", "--name", "insights/rate-limiting.md"],
+      "label": "attach a second document, after the first (order matters)"
+    },
+    { "cmd": ["wait", "--text", "2 of 3 attached"], "label": "both are attached" },
+
+    { "cmd": ["open", "{BASE}/agents"], "label": "hard reload again" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agents fetch settles" },
+    { "cmd": ["find", "text", "Security Reviewer", "click"], "label": "re-open the same agent" },
+    { "cmd": ["wait", "--url", "/agents/"], "label": "agent editor route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agent fetch settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Context"], "label": "switch to the Context tab again" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "documents + links fetch settles" },
+    { "cmd": ["wait", "--text", "2 of 3 attached"], "label": "both documents, and their order, survived the reload (AC-14)" },
+
+    { "cmd": ["open", "{BASE}/skills"], "label": "load the skills page" },
+    { "cmd": ["wait", "--url", "/skills"], "label": "skills route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skills fetch settles" },
+    { "cmd": ["find", "text", "uncovered-branch-gate", "click"], "label": "select the seeded skill" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Context"], "label": "switch to the skill's Context tab" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "documents + links fetch settles" },
+    { "cmd": ["wait", "--text", "0 attached"], "label": "starts with nothing attached" },
+    {
+      "cmd": ["find", "role", "checkbox", "click", "--name", "docs/onboarding.md"],
+      "label": "attach a document on the skill"
+    },
+    { "cmd": ["wait", "--text", "1 attached"], "label": "attached count updates" },
+
+    { "cmd": ["open", "{BASE}/skills"], "label": "hard reload back to the skills list" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skills fetch settles" },
+    { "cmd": ["find", "text", "uncovered-branch-gate", "click"], "label": "re-select the same skill" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Context"], "label": "switch to the Context tab again" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "documents + links fetch settles" },
+    { "cmd": ["wait", "--text", "1 attached"], "label": "still attached after the reload (AC-15)" }
+  ]
+}

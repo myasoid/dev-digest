@@ -186,6 +186,25 @@ _None yet._
   have to be reverse-engineered from the run-executor's control flow.
   `server/src/platform/run-logger.ts:14`, `server/src/modules/reviews/
   run-executor.ts` (`loadOrClassifyIntent`)
+  **Recurred 2026-08-25 (Project Context), caught at SPEC time:** so generalise
+  this entry's "read the i18n file first" to **grep the feature's name across
+  `server/src/vendor/shared/contracts/*.ts` AND `client/messages/en/*.json`
+  before scoping anything** — contracts give the data model and the trace
+  fields, i18n gives the intended UI, and two greps cost a minute. Here they
+  returned `PromptSection`'s `'specs'` member, `PromptAssembly.specs`,
+  `RunTrace.specs_read`, a whole `// ---- Project Context ----` block declaring
+  `SpecFile` and `IndexStatus`, the entire page's copy including its empty
+  state, the nav label, and two written-but-uncallable hooks commented "A3
+  contract; safe to call once API exposes it" — for an endpoint that does not
+  exist. `reviewer-core` needed **zero** changes: `assemblePrompt` already wraps
+  each entry as `<untrusted source="spec-N">` and renders `## Project context`.
+  The dead wire was again one unpassed argument — `run-executor.ts` writes
+  `specs_read: []` and `specs: null` into every trace and never resolves the
+  slot. Doing the greps first re-sized the feature from "build a prompt block"
+  to "discovery + attachment + one argument + three UI surfaces", which is a
+  scoping difference, not a detail — and at spec time it is still free to act
+  on. `server/src/vendor/shared/contracts/platform.ts:262`,
+  `server/src/modules/reviews/run-executor.ts:386`, `specs/2026-08-25-project-context.md`
 
 - **2026-08-04** — `server/src/vendor/shared/contracts/*.ts` and
   `client/src/vendor/shared/contracts/*.ts` are two independent files with no

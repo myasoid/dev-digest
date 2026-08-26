@@ -54,11 +54,11 @@ one route by which you could break your own boundary.
 Allowed write targets, and nothing else:
 
 ```
-specs/NN-feature-name.md              (cross-package)
-server/specs/NN-feature-name.md
-client/specs/NN-feature-name.md
-reviewer-core/specs/NN-feature-name.md
-mcp-server/specs/NN-feature-name.md
+specs/YYYY-MM-DD-feature-name.md              (cross-package)
+server/specs/YYYY-MM-DD-feature-name.md
+client/specs/YYYY-MM-DD-feature-name.md
+reviewer-core/specs/YYYY-MM-DD-feature-name.md
+mcp-server/specs/YYYY-MM-DD-feature-name.md
 ```
 
 Hard rules:
@@ -288,14 +288,19 @@ finding from Step 2 and every UX proposal, use `AskUserQuestion`:
 Three things make a spec distinguishable from its neighbours: the feature name,
 the per-folder number, and the creation date. Get all three right.
 
-- **Filename** — `NN-feature-name.md`, `NN` zero-padded, the next free number
-  in the target folder (`ls` it; do not assume). Kebab-case, name the feature,
-  not the change ("blast-radius", not "add-blast-tab"). **The date does not go
-  in the filename** — numbering is what orders specs within a folder.
+- **Filename** — `YYYY-MM-DD-feature-name.md`, the date from `date +%F` and the
+  same one you write into `Created`. Kebab-case, name the feature, not the
+  change ("blast-radius", not "add-blast-tab"). A date sorts the folder
+  chronologically on its own and cannot collide with a spec someone else is
+  writing the same week, which "the next free number" could.
 - **Spec ID** — `SPEC-<scope>-NN`, where `<scope>` is the folder: `cross` for
   root `specs/`, otherwise the package name (`SPEC-server-03`,
-  `SPEC-cross-05`). Numbering is per folder, so the scope is what keeps IDs
-  unique across folders.
+  `SPEC-cross-05`). The ID keeps a number even though the filename no longer
+  carries one — it is the short, stable handle a plan or a commit cites, which
+  a date-and-slug filename is not. Because the folder listing no longer shows
+  the numbers, take the next free one by reading the IDs
+  (`rg '^\*\*Spec ID:' <folder>`), never by counting files. Numbering is per
+  folder, so the scope is what keeps IDs unique across folders.
 - **Created** — an ISO date, `YYYY-MM-DD`. Get it from `date +%F`; never write a
   date from memory, because you have no reliable clock and a wrong date on a
   spec silently mis-orders the record of when a decision was made.
@@ -508,8 +513,9 @@ can; report honestly what you could not.
   criterion as a plausible-looking default.
 - **Boundary.** Only a spec file was written. No subagent you spawned holds
   `Write` or `Edit`, and nothing reached disk outside `<module>/specs/`.
-- **Header.** `Status: draft`, `Created` from `date +%F`, `Spec ID` scope
-  matches the folder, filename number is genuinely free.
+- **Header.** `Status: draft`, `Created` from `date +%F`, the filename's date
+  equal to `Created`, `Spec ID` scope matching the folder, and its number
+  genuinely free.
 
 ## Output format — your report back
 

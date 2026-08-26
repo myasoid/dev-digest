@@ -57,7 +57,7 @@ lying.
 | `e2e/**`                                                  | — (no skill; use the checklist in `e2e/README.md`)                        |
 | any `*.ts` / `*.tsx` in any zone                          | `typescript-expert`                                                       |
 | **by hunk content, not path** (see below)                 | `security`, `semver-discipline`, `deprecation-policy`                    |
-| never routed here                                         | `mermaid-diagram`, `engineering-insights`, `run-plan` (authoring/orchestration tools, not reviewers) |
+| never routed here                                         | `mermaid-diagram`, `engineering-insights`, `run-plan`, `workflow-retro` (authoring/orchestration tools, not reviewers) |
 
 ### Notes on individual routes
 

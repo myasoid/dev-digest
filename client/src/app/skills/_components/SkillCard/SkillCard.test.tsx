@@ -75,4 +75,14 @@ describe("SkillCard", () => {
     renderWithIntl(<SkillCard skill={{ ...SKILL, used_by_agents: 1, pull_rate: null, accept_rate: null }} />);
     expect(screen.getByText("1 agent")).toBeInTheDocument();
   });
+
+  it("renders the context doc count badge when known", () => {
+    renderWithIntl(<SkillCard skill={{ ...SKILL, context_doc_count: 4 }} />);
+    expect(screen.getByText("4 docs")).toBeInTheDocument();
+  });
+
+  it("omits the context doc count badge when it is not known", () => {
+    renderWithIntl(<SkillCard skill={{ ...SKILL, context_doc_count: null }} />);
+    expect(screen.queryByText(/docs/)).not.toBeInTheDocument();
+  });
 });

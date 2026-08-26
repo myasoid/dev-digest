@@ -1,0 +1,45 @@
+{
+  "name": "Project Context page lists seeded documents, previews one, and its run trace shows the injected specs block",
+  "description": "Read-only against seeded data (no model call, no write). Opens the Project Context page from the sidebar (AC-45), confirms the seeded specs/public-api.md document is listed, triggers a refresh (AC-7), selects the document and confirms its markdown body renders in the preview pane (AC-10). Then opens PR #482's Agent runs tab, finds the seeded, already-completed Security Reviewer run (canned in server/src/db/seed.ts's context-trace fixture — no LLM call), opens its trace, expands the prompt-assembly section and the project-context block, and confirms the untrusted delimiter is visible in the expanded text (AC-36, AC-37). The empty-document-repository state (AC-42) is NOT exercised here: the hermetic stack seeds exactly one repo (e2e/README.md — flows 02/04/05 depend on that), and this feature's own seed fixture gives that repo three documents, so there is no seeded repository left with a working copy and zero documents to reach that state against; AC-42 is verified instead by the hermetic unit test in Step 16 (ProjectContextView.test.tsx).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the seeded repo's PR list" },
+    { "cmd": ["find", "text", "Project Context", "click"], "label": "open Project Context from the sidebar (AC-45)" },
+    { "cmd": ["wait", "--url", "/context"], "label": "navigate to the Project Context route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "document list fetch settles" },
+    { "cmd": ["wait", "--text", "specs/public-api.md"], "label": "the seeded spec document is listed" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Re-index"], "label": "trigger a refresh (AC-7)" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "reindex settles" },
+    { "cmd": ["wait", "--text", "specs/public-api.md"], "label": "the document is still listed after the refresh" },
+    { "cmd": ["find", "text", "specs/public-api.md", "click"], "label": "select the seeded spec document" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "document body fetch settles" },
+    {
+      "cmd": ["wait", "--text", "Every public endpoint must be rate-limited before it ships."],
+      "label": "the document's markdown body renders in the preview pane (AC-10)"
+    },
+    { "cmd": ["find", "text", "Pull Requests", "click"], "label": "back to the PR list via the sidebar" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "PR list route reached" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open PR #482" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "PR detail route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Agent runs"], "label": "switch to the Agent runs tab" },
+    { "cmd": ["wait", "--text", "Security Reviewer"], "label": "the seeded run's timeline row is visible" },
+    {
+      "cmd": ["find", "role", "button", "click", "--name", "Open run trace & logs"],
+      "label": "open the seeded run's trace drawer"
+    },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "trace fetch settles" },
+    {
+      "cmd": ["find", "role", "button", "click", "--name", "Prompt assembly"],
+      "label": "expand the prompt-assembly section"
+    },
+    {
+      "cmd": ["find", "text", "Project context — attached specs (untrusted)", "click"],
+      "label": "expand the project-context block (AC-36)"
+    },
+    {
+      "cmd": ["wait", "--text", "<untrusted source=\"spec-"],
+      "label": "the untrusted delimiter is visible in the expanded text (AC-37)"
+    }
+  ]
+}
