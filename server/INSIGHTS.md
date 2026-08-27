@@ -239,6 +239,17 @@ _None yet._
   unchanged files — `INDEXER_VERSION` must be bumped to force the rebuild.
   `server/src/adapters/codeindex/extract.ts`, `server/test/extract.test.ts`
 
+- **2026-08-27** — `BlastService` is not exposed on the DI container
+  (`platform/container.ts`) — every consumer instantiates it directly with
+  `new BlastService(container)`. `blast/routes.ts:20` set this precedent first;
+  `pr-brief/service.ts` (SPEC-cross-06) mirrors it rather than adding
+  `BlastService` to the container, on the reasoning that a new module should
+  match an existing convention rather than fork it silently. Two consumers now
+  share the pattern, so treat it as intentional-by-repetition, not an
+  oversight to "fix" in isolation — if it does turn out to be an oversight,
+  fixing it means updating both call sites, not just the newest one.
+  `server/src/modules/blast/routes.ts:20`, `server/src/modules/pr-brief/service.ts`
+
 - **2026-08-14** — a grouped-by-`X` aggregate query (`GROUP BY skill_id`, one
   round trip for the whole list) and a single-item version of the same
   aggregate (one skill's stats) don't need two query implementations. Give the
@@ -349,6 +360,18 @@ _None yet._
   `` `dist/**` ``, or escape it like `` `**\/dist/**` `` if the literal glob
   must appear. `server/src/modules/reviews/smart-diff/constants.ts`
 
+- **2026-08-27** — `app.ts` disables the global `@fastify/rate-limit` plugin
+  entirely under `NODE_ENV=test` (so integration suites can hammer endpoints
+  via `inject()`), so a route-level `config: { rateLimit: {...} }` override —
+  e.g. `POST /pulls/:id/brief/refresh`'s `{ max: 10, timeWindow: '1 minute' }`
+  — has no effect under the standard `loadConfig({ NODE_ENV: 'test' })` every
+  other `*.it.test.ts` uses. No existing integration test previously exercised
+  a rate limit, so this was undocumented until `pr-brief.it.test.ts` needed to
+  assert a 429. Fix: build the Fastify app with a second config helper
+  (`NODE_ENV: 'development'`, `LOG_LEVEL: 'silent'`) for a rate-limit-specific
+  test, not the shared test-config helper. `server/src/app.ts:101-105`,
+  `server/src/modules/pr-brief/pr-brief.it.test.ts`
+
 - **2026-08-14** — capping an uploaded archive's size does **not** cap what it
   decompresses to, and with `fflate` the only place to stop a bomb is the
   per-entry `filter`. `unzipSync` allocates each entry's output buffer from the
@@ -391,6 +414,14 @@ _None yet._
   "unconsumed" contract fail a `ZodError: Required` on the OLD fixture the
   moment the schema changes, even though no real caller broke.
   `server/test/contracts.test.ts`
+  **Recurred 2026-08-27** — repurposing `PrBrief` and deleting the
+  now-dead `BlastRadius`/`Risks`/`PrHistory`/etc. exports from
+  `contracts/brief.ts`, a grep scoped to `server/src` + `client/src` (the
+  plan's own stated scope) came back clean, but `server/test/contracts.test.ts`
+  still imported and asserted the old shapes and only failed once the full
+  hermetic suite ran. General shape to bake into any future grep: a
+  contract-repurpose check must cover every directory a package's test runner
+  picks up, not just `src/` — `server/test/` and `client/test/` in this repo.
 
 - **2026-08-14** — a repository *update* that returns `Row | undefined` is
   signalling a real read-modify-write race, not type noise, and asserting it

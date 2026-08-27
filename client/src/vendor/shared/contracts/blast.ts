@@ -12,11 +12,12 @@ import { z } from 'zod';
  * handler runs"). `repo-intel/types.ts` re-exports the inferred types below
  * so `RepoIntelService.getBlastRadius()`'s signature needs no change.
  *
- * NOT to be confused with `BlastRadius` in `./brief.ts` — that is an
- * unrelated, already-shipped `PrBrief` summary field (`changed_symbols`,
- * `downstream`, `summary`) with a different shape and a different producer
- * (the PR-brief classifier, not repo-intel). Different contract, same
- * English name; do not merge or rename either one.
+ * Historical note: `./brief.ts` briefly had an unrelated `BlastRadius` type
+ * (a `changed_symbols`/`downstream`/`summary` field of an earlier, heavier
+ * `PrBrief` concept). Removed 2026-08-27 when `PrBrief` was repurposed
+ * (SPEC-cross-06) — the current PR-scoped blast view is `PrBlastMap`
+ * (`contracts/pr-blast.ts`), which condenses THIS `BlastResult`, not the old
+ * `BlastRadius` shape.
  */
 
 // ---- Degraded reason ----

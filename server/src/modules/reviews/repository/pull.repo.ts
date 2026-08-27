@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
-import type { Intent } from '@devdigest/shared';
+import type { Intent, PrBrief } from '@devdigest/shared';
 import type { PullRow } from '../../../db/rows.js';
 
 // ---- PR lookup (workspace-scoped) -----------------------------------------
@@ -87,4 +87,30 @@ export async function getIntent(db: Db, prId: string): Promise<Intent | undefine
     risk_areas: row.riskAreas,
     head_sha: row.headSha,
   };
+}
+
+// ---- PR Brief (SPEC-cross-06) -----------------------------------------------
+
+/** Overwrite the PR's cached Brief (one row per PR, mirrors `upsertIntent`). */
+export async function upsertBrief(db: Db, prId: string, brief: PrBrief): Promise<void> {
+  const values = {
+    prId,
+    json: brief,
+    headSha: brief.head_sha ?? null,
+  };
+  await db
+    .insert(t.prBrief)
+    .values(values)
+    .onConflictDoUpdate({ target: t.prBrief.prId, set: values });
+}
+
+export async function getBrief(db: Db, prId: string): Promise<PrBrief | undefined> {
+  const [row] = await db.select().from(t.prBrief).where(eq(t.prBrief.prId, prId));
+  if (!row) return undefined;
+  // `json` is the serialized PrBrief as of write time; `headSha` is the
+  // column mirror used for the cache-key/staleness query path, kept in sync
+  // by upsertBrief. Prefer the column here so a row written before this
+  // column existed (NULL) still parses via PrBrief's `head_sha.nullish()`.
+  const stored = row.json as PrBrief;
+  return { ...stored, head_sha: row.headSha ?? stored.head_sha ?? null };
 }

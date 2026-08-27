@@ -32,10 +32,10 @@ export type IndexStatus = 'full' | 'partial' | 'degraded' | 'failed';
  * `response` schema. Re-exported here (inferred TS types only, imported
  * above so they stay usable within this file too) so every existing import
  * of these names from this module keeps working unchanged, and
- * `RepoIntelService.getBlastRadius()` needs no signature change. Do NOT
- * confuse `BlastResult` with `@devdigest/shared`'s unrelated `BlastRadius`
- * (a `PrBrief` summary field, `contracts/brief.ts`) — different shape,
- * different producer.
+ * `RepoIntelService.getBlastRadius()` needs no signature change. (An
+ * unrelated `BlastRadius` type briefly existed in `contracts/brief.ts` as a
+ * `PrBrief` summary field — removed 2026-08-27 when `PrBrief` was
+ * repurposed, SPEC-cross-06.)
  */
 export type { DegradedReason, BlastChangedSymbol, BlastCallerRow, BlastResult };
 

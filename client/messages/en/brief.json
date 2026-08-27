@@ -1,19 +1,38 @@
 {
-  "block": {
-    "intent": "Intent",
-    "blast": "Blast radius",
-    "risks": "Risks",
-    "history": "PR history"
+  "title": "PR Brief",
+  "generate": "Generate brief",
+  "regenerate": "Regenerate",
+  "what": "What",
+  "why": "Why",
+  "expand": "Show more",
+  "collapse": "Show less",
+  "riskLevel": {
+    "high": "High risk",
+    "medium": "Medium risk",
+    "low": "Low risk"
   },
-  "noRisks": "No notable risks flagged.",
-  "noHistory": "No prior PRs overlap these files.",
-  "overlap": "{count} overlap",
-  "unavailable": "Brief not available yet.",
-  "unavailableHint": "Run a review or open the PR to compute it.",
-  "why": {
-    "title": "git-why",
-    "blame": "blame",
-    "noHistory": "No history available for this line.",
-    "noCommits": "No commits found for this line."
+  "stale": "New commits landed since this was generated",
+  "partial": "Generated from partial inputs",
+  "signalsUsed": "Generated from: {signals}",
+  "risks": {
+    "title": "Risks",
+    "empty": "No notable risks flagged."
+  },
+  "reviewFocus": {
+    "title": "Review focus",
+    "empty": "Nothing rose to read-first.",
+    "nOfM": "{shown} of {total} — show all"
+  },
+  "reviewScore": "Score {score}",
+  "reviewFindings": "{count, plural, one {# finding} other {# findings}}",
+  "reviewBlockers": "{count, plural, one {# blocker} other {# blockers}}",
+  "empty": {
+    "title": "No brief yet",
+    "body": "Generate a one-paragraph brief and a review-focus list for this PR."
+  },
+  "error": {
+    "title": "Could not generate the brief",
+    "body": "The server returned an error. Try again.",
+    "retry": "Retry"
   }
 }

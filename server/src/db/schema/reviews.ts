@@ -72,4 +72,8 @@ export const prBrief = pgTable('pr_brief', {
     .primaryKey()
     .references(() => pullRequests.id, { onDelete: 'cascade' }),
   json: jsonb('json').notNull(),
+  /** Head SHA the brief was generated against — cache key + file:line pin +
+   * staleness (AC-3, AC-4, AC-9), mirroring `prIntent.headSha`. Nullable:
+   * rows written before this column existed. */
+  headSha: text('head_sha'),
 });

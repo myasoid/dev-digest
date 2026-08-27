@@ -3,10 +3,8 @@ import {
   Review,
   Finding,
   Intent,
-  BlastRadius,
   BlastResult,
-  Risks,
-  PrHistory,
+  PrBrief,
   SmartDiff,
   Conformance,
   Onboarding,
@@ -68,41 +66,43 @@ describe('AI contracts parse fixtures', () => {
     expect(f.trifecta_components).toContain('exfil_path');
   });
 
-  it('Intent / BlastRadius / Risks / PrHistory', () => {
+  it('Intent', () => {
     expect(() =>
       Intent.parse({ intent: 'x', in_scope: ['a'], out_of_scope: ['b'] }),
     ).not.toThrow();
+  });
+
+  it('PrBrief (SPEC-cross-06) — full shape, and grounded refs are a subset of the input set', () => {
+    const brief = PrBrief.parse({
+      what: 'Adds rate limiting to the refresh route.',
+      why: 'Prevent abuse of an AI-generation endpoint.',
+      risk_level: 'medium',
+      risks: [
+        {
+          title: 'Untested boundary',
+          explanation: 'No test covers the rate-limit window edge.',
+          refs: ['src/pr-brief/routes.ts'],
+        },
+      ],
+      review_focus: [
+        { ref: 'src/pr-brief/routes.ts', line: 42, description: 'The new refresh route.' },
+        { ref: 'GET /pulls/:id/brief', line: null, description: 'The cached-read endpoint.' },
+      ],
+      signals_used: ['diff_shape', 'intent', 'blast'],
+      head_sha: 'abc1234',
+    });
+    expect(brief.risk_level).toBe('medium');
+    expect(brief.review_focus).toHaveLength(2);
+
+    // head_sha is nullish — a pre-field row (or a thin PR) still parses.
     expect(() =>
-      BlastRadius.parse({
-        changed_symbols: [{ name: 'rateLimit', file: 'a.ts', kind: 'function' }],
-        downstream: [
-          {
-            symbol: 'rateLimit',
-            callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
-            endpoints_affected: ['GET /x'],
-            crons_affected: ['c'],
-          },
-        ],
-        summary: 's',
-      }),
-    ).not.toThrow();
-    expect(() =>
-      Risks.parse({
-        risks: [{ kind: 'security', title: 't', explanation: 'e', severity: 'high', file_refs: [] }],
-      }),
-    ).not.toThrow();
-    expect(() =>
-      PrHistory.parse({
-        history: [
-          {
-            pr_number: 401,
-            title: 't',
-            merged_at: '2026-03-18',
-            author: 'a',
-            files_overlap: [],
-            notes: 'n',
-          },
-        ],
+      PrBrief.parse({
+        what: 'w',
+        why: 'y',
+        risk_level: 'low',
+        risks: [],
+        review_focus: [],
+        signals_used: ['diff_shape'],
       }),
     ).not.toThrow();
   });
