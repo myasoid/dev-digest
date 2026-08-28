@@ -30,11 +30,21 @@ parses requests, maps status codes, and delegates all business logic to
 RepoService."*
 
 **`service.ts` — application ring.** Constructed with `app.container` (the DI
-composition root), holds the business rules and orchestration, calls repositories
-and adapters through the container rather than constructing them itself.
+composition root), holds the business rules and orchestration. It constructs
+*its own* module's repository directly from `container.db` (see
+`RepoRepository` below) — that's the norm, not a violation. What it must
+**not** construct itself is a concrete **adapter** for an external port
+(`GitHubClient`, `LLMProvider`, …) or **another module's** repository; those
+come from the container. See "Cross-module access goes through the
+container" below for the line between the two.
 
 **`repository.ts` (or `repository/*.repo.ts`) — infrastructure ring, DB side.** The
 *only* place in the module that imports `db/schema.ts` and issues Drizzle queries.
+It shapes the *query* (`where`/`orderBy`/joins) but doesn't interpret the *result* —
+a threshold, weighting, or eligibility rule applied to rows before returning them
+is business logic that belongs in `service.ts`, even though it never shows up as
+an import worth flagging. See
+[anti-patterns.md #5](anti-patterns.md#5-businessderived-logic-hiding-inside-repositoryts).
 
 ```ts
 // server/src/modules/repos/repository.ts (shape)
@@ -51,6 +61,17 @@ export class RepoRepository {
 never reaches into another module's folder to run its own queries. If `reviews/`
 needs review data owned by `agents/`, it calls `container.agentsRepo`, not
 `import { AgentRepository } from '../agents/repository'` plus a new instance.
+
+**This is about *cross*-module access, not a ban on `new` inside `service.ts`.**
+A module constructing its *own* repository via `container.db` —
+`this.repo = new RepoRepository(container.db)`, exactly as shown above — is
+the established pattern, not a DI-container bypass. Don't flag it. Only flag
+a `new` in `service.ts` when what's being constructed is (a) a **different**
+module's repository (the cross-module case above), or (b) a concrete
+**adapter** implementing an external port — `GitHubClient`, `LLMProvider`,
+etc. — which the container already exposes an interface for (see
+[anti-patterns.md #3](anti-patterns.md#3-domainpure-code-reaching-for-a-concrete-adapter)
+and `SKILL.md`'s "One port, one adapter" best practice).
 
 ## `repo-intel/` — the facade pattern, one level up
 

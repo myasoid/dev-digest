@@ -1,0 +1,34 @@
+{
+  "skill_name": "onion-architecture",
+  "expected_findings_file": "expected-findings.json",
+  "evals": [
+    {
+      "id": 1,
+      "name": "case-1-labels",
+      "description": "New server module (routes → service → repository) with an infrastructure-in-routes violation, a concrete-adapter-construction violation, and a Zod-contract fork.",
+      "fixture_dir": "fixtures/case-1-labels",
+      "prompt": "Review this fixture (a small standalone backend module styled after server/src/modules/<name>/) against the onion-architecture skill's rules, exactly as you would review a real PR touching server/src/modules/**. Treat db.ts/adapters.ts/container.ts/shared.ts as local stand-ins for the real server/src/db, server/src/adapters, server/src/platform/container.ts, and @devdigest/shared. Report every onion-architecture violation you find: file, function/section, which rule/anti-pattern it violates, and why."
+    },
+    {
+      "id": 2,
+      "name": "case-2-comments-scoring",
+      "description": "A reviewer-core 'pure' domain file that reaches for a concrete LLM adapter, plus a server module with a re-declaring repository facade and a cross-module repository import.",
+      "fixture_dir": "fixtures/case-2-comments-scoring",
+      "prompt": "Review this fixture (standalone, but styled after reviewer-core/src/** and server/src/modules/**) against the onion-architecture skill's rules. Map reviewer-core/ to the real reviewer-core/src/** (pure domain core with an injected LLMProvider port). Map server/comments/ and server/agents/ to real server/src/modules/<name>/ feature modules, and server/container.ts/server/db.ts to server/src/platform/container.ts/server/src/db/**. Report every onion-architecture violation you find: file, function/section, which rule/anti-pattern it violates, and why."
+    },
+    {
+      "id": 3,
+      "name": "case-3-annotations",
+      "description": "New server module with business logic + raw Drizzle in routes.ts, a concrete LLM-adapter construction in service.ts, and a Zod-contract fork.",
+      "fixture_dir": "fixtures/case-3-annotations",
+      "prompt": "Review this fixture (standalone, but styled after server/src/modules/<name>/) against the onion-architecture skill's rules. Treat container.ts/db.ts/shared.ts as local stand-ins for server/src/platform/container.ts/server/src/db/**/@devdigest/shared. Treat llm/llm-provider.ts and llm/openrouter.ts as stand-ins for the real LLMProvider port and its concrete adapter. Report every onion-architecture violation you find: file, function/section, which rule/anti-pattern it violates, and why."
+    },
+    {
+      "id": 4,
+      "name": "case-4-webhooks",
+      "description": "Larger (10-file) new server module with a split repository (repository/{subscription,delivery}.repo.ts + facade), covering the same routes/concrete-adapter/contract-fork violations as the other cases plus one deliberately subtler one: a business threshold computed inside a repository method instead of in service.ts.",
+      "fixture_dir": "fixtures/case-4-webhooks",
+      "prompt": "Review this fixture (a small standalone backend module styled after server/src/modules/<name>/) against the onion-architecture skill's rules, exactly as you would review a real PR touching server/src/modules/**. Treat db.ts/adapters.ts/container.ts/shared.ts as local stand-ins for the real server/src/db, server/src/adapters, server/src/platform/container.ts, and @devdigest/shared. Report every onion-architecture violation you find: file, function/section, which rule/anti-pattern it violates, and why."
+    }
+  ]
+}

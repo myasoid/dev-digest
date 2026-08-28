@@ -34,3 +34,13 @@ test-results/
 # workflow-retro raw per-run measurements — machine-local and session-bound.
 # .claude/WORKFLOW-INSIGHTS.md is team knowledge and IS committed.
 .claude/workflow-runs/*
+
+# workflow-retro raw per-run measurements — machine-local and session-bound.
+# .claude/WORKFLOW-INSIGHTS.md is team knowledge and IS committed.
+.claude/workflow-runs/*
+
+# onion-architecture eval run output (transcripts, grading.json, benchmark.json)
+# — regenerated every CI run. The fixtures/manifest that get tested live in
+# .claude/skills/onion-architecture/evals/ instead, and ARE committed.
+.claude/onion-architecture-eval-runs/*
+!.claude/onion-architecture-eval-runs/README.md
