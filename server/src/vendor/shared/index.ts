@@ -3,7 +3,8 @@
  *
  * Exports (Zod schemas + inferred TS types):
  *  - contracts/findings   Review, Finding, Severity, Verdict, FindingAction, trifecta
- *  - contracts/brief      Intent, BlastRadius, Risks, PrHistory, SmartDiff, PrBrief
+ *  - contracts/brief      Intent, SmartDiff, PrBrief (SPEC-cross-06 card:
+ *                         what/why/risk_level/risks/review_focus)
  *  - contracts/knowledge  Conformance, Onboarding, EvalRun/EvalCase, MemoryItem,
  *                         Skill/CommunitySkill, ConventionCandidate, Agent
  *  - contracts/trace      RunTrace, RunEvent, RunLogLine (single-document trace)

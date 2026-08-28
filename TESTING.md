@@ -1,6 +1,6 @@
 # Testing & CI strategy
 
-DevDigest is four independent packages (no workspace), so testing is organised
+DevDigest is five independent packages (no workspace), so testing is organised
 as **one suite per package**, each with its own CI workflow, runner, and path
 filter. A package's suite runs only when that package (or a package it depends
 on at type-check time) changes.
@@ -30,6 +30,7 @@ If a test wouldn't catch a class of regression we care about, we don't write it.
 | server-unit | `server/` | unit (hermetic) | vitest | `server-unit.yml` | no |
 | server-integration | `server/` | integration (real Postgres) | vitest | `server-integration.yml` | **yes** |
 | reviewer-core | `reviewer-core/` | unit (engine) | vitest | `reviewer-core.yml` | no |
+| mcp-server | `mcp-server/` | unit (stdio tools, stubbed HTTP) | vitest | `mcp-server.yml` | no |
 | e2e web | `e2e/` | browser e2e (deterministic) | agent-browser + `run.ts` | `e2e-web.yml` | yes (stack) |
 
 ## What each suite covers
@@ -61,6 +62,13 @@ self-skip when Docker is unavailable.
 **reviewer-core** — the pure engine: `toReview` selection, prompt construction,
 and a `run` with a stubbed model → grounded findings. No DB / GitHub / FS.
 
+**mcp-server** — the five stdio tools plus the HTTP client they sit on. Hermetic
+by construction: `ApiClient` tests stub `fetch` via `vi.stubGlobal`, and each
+tool test injects a hand-rolled fake `ApiClient` that answers by path prefix. No
+DevDigest API, no network, no Docker. Covers tool argument resolution
+(`resolve.test.ts`), run polling (`run-poller.test.ts`), server wiring
+(`server.test.ts`), and one file per tool under `src/tools/`.
+
 **e2e web** — see `e2e/README.md`. Deterministic agent-browser flows over the
 main journeys (boot → PR list → PR detail; agents; skills) against a real seeded
 stack. No `chat`, no model key.
@@ -77,11 +85,12 @@ Default 5 runs per condition, because a single pair of samples is noise.
 # per package
 cd client        && pnpm test           # + pnpm typecheck
 cd reviewer-core && npm test
+cd mcp-server    && npm test
 
 # server — the unit/integration split (see note below)
 cd server && pnpm exec vitest run --exclude '**/*.it.test.ts'   # unit, no Docker
 cd server && pnpm exec vitest run .it.test                      # integration, needs Docker
-cd server && pnpm test                                          # both
+cd server && pnpm test                                          # both — starts Docker
 
 # browser e2e (needs the full stack + agent-browser CLI)
 ./scripts/dev.sh
@@ -91,6 +100,20 @@ cd e2e && npm install && npm test
 
 ## Conventions
 
+- **Don't bother switching reporters to save agent context.** Measured on
+  `mcp-server` (9 files, 48 tests) under vitest 2.1.9 in a non-TTY shell,
+  `default`, `dot` and `basic` all produce the same ~20 lines — one line per
+  file plus the summary — with or without `CI=1`. The reporter is not where a
+  test run's output cost lives; a booted testcontainer is (see below). Use
+  `--silent` if a suite's own `console.log` is noisy.
+- **`vitest related` is the inner loop.** While iterating on a change, run only
+  the tests that reach the files you touched:
+  `pnpm exec vitest related --run src/foo.ts src/bar.ts`. Run the package's full
+  suite **once**, at the end — not after every edit.
+- **Never run `pnpm test` in `server/` to check a code change.** That script is
+  `vitest run` with no exclude, so it pulls in `*.it.test.ts`, boots
+  testcontainers Postgres, and runs with a 120s timeout per test. The hermetic
+  command is `pnpm exec vitest run --exclude '**/*.it.test.ts'`.
 - **Integration tests end in `*.it.test.ts`.** The unit lane excludes that glob
   (`vitest run --exclude '**/*.it.test.ts'`); the integration lane selects only
   it (`vitest run .it.test`). A DB-backed test that imports `test/helpers/pg.ts`

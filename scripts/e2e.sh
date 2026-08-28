@@ -41,6 +41,11 @@ export DATABASE_URL="postgres://${PG_USER}:${PG_PASS}@127.0.0.1:${PG_PORT}/${PG_
 export API_PORT WEB_PORT
 export NEXT_PUBLIC_API_BASE="http://localhost:${API_PORT}"
 export E2E_BASE_URL="http://localhost:${WEB_PORT}"
+# Project Context fixture (R-9): ON only for this isolated stack, and into an
+# ISOLATED clone dir — never a developer's real ~/.devdigest/workspace, and
+# never the unflagged default `pnpm db:seed` a developer runs by hand.
+export DEVDIGEST_SEED_CONTEXT_FIXTURE=1
+export DEVDIGEST_CLONE_DIR="${ROOT}/.e2e-clones"
 
 log()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }

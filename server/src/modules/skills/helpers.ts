@@ -20,7 +20,7 @@ export interface SkillUsage {
  * turn the skills list into an N+1. Omitted → the usage fields are absent and
  * the card footer renders nothing rather than a wrong 0.
  */
-export function toSkillDto(row: SkillRow, usage?: SkillUsage): Skill {
+export function toSkillDto(row: SkillRow, usage?: SkillUsage, contextDocCount?: number): Skill {
   return {
     id: row.id,
     name: row.name,
@@ -41,6 +41,7 @@ export function toSkillDto(row: SkillRow, usage?: SkillUsage): Skill {
           accept_rate: usage.acceptRate,
         }
       : {}),
+    ...(contextDocCount !== undefined ? { context_doc_count: contextDocCount } : {}),
   };
 }
 

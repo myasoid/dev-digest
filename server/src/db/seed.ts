@@ -1,4 +1,7 @@
 import 'dotenv/config';
+import { homedir } from 'node:os';
+import { isAbsolute, join, resolve } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
 import { eq, and } from 'drizzle-orm';
@@ -14,6 +17,130 @@ import { SEED_AGENT_SKILLS, SEED_SKILLS } from './seed-skills.js';
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
 const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
+
+/**
+ * Project Context e2e fixture — OFF by default (R-9). A developer's ordinary
+ * `pnpm db:seed` must NOT give the demo repo a `clonePath`: that would make
+ * every dev's demo repo look cloned, changing repo-intel's behaviour for an
+ * unrelated feature. `scripts/e2e.sh` sets this flag (and an isolated
+ * `DEVDIGEST_CLONE_DIR`) so only the hermetic e2e stack gets it.
+ */
+const SEED_CONTEXT_FIXTURE =
+  process.env.DEVDIGEST_SEED_CONTEXT_FIXTURE === '1' ||
+  process.env.DEVDIGEST_SEED_CONTEXT_FIXTURE === 'true';
+
+/** Mirrors `platform/config.ts`'s `cloneDir` resolution (kept independent —
+ *  seed.ts doesn't otherwise depend on `loadConfig`). */
+function resolveCloneDir(): string {
+  const raw = process.env.DEVDIGEST_CLONE_DIR ?? join(homedir(), '.devdigest', 'workspace');
+  return isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
+}
+
+/** Body of the seeded `specs/public-api.md` fixture — shared between the file
+ *  written to disk and the canned trace's `prompt_assembly.specs` below, so
+ *  the two never drift. */
+const SPECS_FIXTURE_PATH = 'specs/public-api.md';
+const SPECS_FIXTURE_BODY =
+  '# Public API contract\n\nEvery public endpoint must be rate-limited before it ships.\n';
+
+/** One `.md` document per `.devdigest` type — enough for the e2e flows to see
+ *  a non-empty Project Context page (AC-7, AC-10, AC-13, AC-14, AC-15) without
+ *  needing a real git clone. */
+async function writeContextFixture(clonePath: string): Promise<void> {
+  const dirs = {
+    specs: join(clonePath, '.devdigest', 'specs'),
+    docs: join(clonePath, '.devdigest', 'docs'),
+    insights: join(clonePath, '.devdigest', 'insights'),
+  };
+  await Promise.all(Object.values(dirs).map((d) => mkdir(d, { recursive: true })));
+  await writeFile(join(dirs.specs, 'public-api.md'), SPECS_FIXTURE_BODY);
+  await writeFile(
+    join(dirs.docs, 'onboarding.md'),
+    '# Onboarding\n\nStart with the payments flow — it touches every public endpoint.\n',
+  );
+  await writeFile(
+    join(dirs.insights, 'rate-limiting.md'),
+    '# Insight: rate limiting\n\nWe tried a global limiter first and rejected it — see PR #482.\n',
+  );
+}
+
+/**
+ * Canned `agent_runs` + `run_traces` rows for PR #482, so the e2e-only run
+ * trace has a `## Project context` block to expand (AC-36, AC-37) without a
+ * real model call — the SAME "insert a finished result directly, no LLM"
+ * shape the sample review + findings above already use. Idempotent: skipped
+ * if a run already exists for this PR + agent.
+ */
+async function seedContextTrace(db: Db, workspaceId: string, prId: string, agentId: string): Promise<void> {
+  const [existing] = await db
+    .select({ id: t.agentRuns.id })
+    .from(t.agentRuns)
+    .where(and(eq(t.agentRuns.prId, prId), eq(t.agentRuns.agentId, agentId)));
+  if (existing) return;
+
+  const run = insertedRow(
+    await db
+      .insert(t.agentRuns)
+      .values({
+        workspaceId,
+        agentId,
+        prId,
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
+        durationMs: 4200,
+        tokensIn: 1800,
+        tokensOut: 240,
+        costUsd: 0.004,
+        status: 'done',
+        source: 'local',
+        findingsCount: 0,
+        grounding: '0/0 passed',
+        score: 92,
+        blockers: 0,
+        criticalCount: 0,
+        warningCount: 0,
+        suggestionCount: 0,
+      })
+      .returning(),
+    'e2e context-trace run',
+  );
+
+  // Mirrors exactly what `assemblePrompt`'s `specs` slot renders
+  // (`wrapUntrusted('spec-0', …)`, `reviewer-core/src/prompt.ts:37-41,125`) —
+  // this is a canned trace, not a real engine call, so it has to reproduce
+  // the engine's own wrapping to be a faithful fixture.
+  const specsBlock = `<untrusted source="spec-0">\n${SPECS_FIXTURE_BODY}\n</untrusted>`;
+  const systemPrompt = SECURITY_REVIEWER_PROMPT;
+  const user = `## Project context\n${specsBlock}\n\n## Diff to review\n<untrusted source="diff">\n(diff omitted from this seed fixture)\n</untrusted>`;
+
+  await db.insert(t.runTraces).values({
+    runId: run.id,
+    trace: {
+      config: { agent: 'Security Reviewer', version: '1', provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL, pr: 482, source: 'local' },
+      stats: { duration_ms: 4200, tokens_in: 1800, tokens_out: 240, cost_usd: 0.004, findings: 0, grounding: '0/0 passed' },
+      intent_stats: null,
+      prompt_assembly: {
+        system: systemPrompt,
+        skills: null,
+        memory: null,
+        specs: specsBlock,
+        callers: null,
+        repo_map: null,
+        pr_description: null,
+        intent: null,
+        user,
+        section_sizes: [
+          { section: 'specs', chars: specsBlock.length, est_tokens: Math.ceil(specsBlock.length / 4) },
+        ],
+      },
+      tool_calls: [],
+      raw_output: '',
+      memory_pulled: [],
+      specs_read: [SPECS_FIXTURE_PATH],
+      log: [{ t: '00.00', kind: 'info', msg: `Project context in prompt (1): ${SPECS_FIXTURE_PATH}` }],
+    },
+  });
+}
 
 /**
  * Seed the starter's demo data. Idempotent: re-running upserts the default
@@ -113,11 +240,23 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     );
   const repoId = repo.id;
 
+  // Behind a flag (default off, R-9) — writes a three-file `.devdigest`
+  // fixture and points the seeded repo's clonePath at it, so e2e flows have
+  // a working copy to discover documents in.
+  if (SEED_CONTEXT_FIXTURE) {
+    const clonePath = join(resolveCloneDir(), 'acme', 'payments-api');
+    await writeContextFixture(clonePath);
+    await db.update(t.repos).set({ clonePath }).where(eq(t.repos.id, repoId));
+  }
+
   // ---- PR #482 (rate limiting) ----
   const [existingPr] = await db
     .select()
     .from(t.pullRequests)
     .where(and(eq(t.pullRequests.repoId, repoId), eq(t.pullRequests.number, 482)));
+  // Captured outside the `if` so the context-trace seeding below (which needs
+  // an agent, seeded further down this function) can find PR 482 either way.
+  let prId482 = existingPr?.id;
   if (!existingPr) {
     const pr = insertedRow(
       await db
@@ -141,6 +280,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       'demo pull request',
     );
     const prId = pr.id;
+    prId482 = prId;
 
     // pr_files (subset)
     await db.insert(t.prFiles).values([
@@ -300,6 +440,16 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // Same flag as the .devdigest fixture (R-9): only the e2e-only trace needs
+  // this, and only once both the PR and the agent it references exist.
+  if (SEED_CONTEXT_FIXTURE && prId482) {
+    const [securityAgent] = await db
+      .select({ id: t.agents.id })
+      .from(t.agents)
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, 'Security Reviewer')));
+    if (securityAgent) await seedContextTrace(db, workspaceId, prId482, securityAgent.id);
   }
 
   await seedSkills(db, workspaceId);

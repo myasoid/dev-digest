@@ -18,6 +18,8 @@ import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
 import { loadDiff } from './diff-loader.js';
 import { IntentClassifier } from './intent-classifier.js';
+import { resolveEffectiveContextDocs } from './context-docs.js';
+import type { PromptSkillRow } from '../agents/repository.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -44,7 +46,7 @@ const PROMPT_SECTION_SOURCE: Record<PromptSection, string> = {
   system: 'agent system prompt',
   skills: 'linked skills (user-enabled)',
   memory: 'curated memory',
-  specs: 'project context (repo-intel)',
+  specs: 'project context (attached documents)',
   callers: 'callers digest (repo-intel)',
   repo_map: 'repo skeleton (repo-intel)',
   pr_description: 'PR body (GitHub, author-supplied)',
@@ -253,6 +255,18 @@ export class ReviewRunExecutor {
         skills.map((sk) => ({ id: sk.id, version: sk.version })),
       );
 
+      // Project Context — the agent's directly attached documents, plus each
+      // linked+enabled skill's attached documents, resolved and read. Unlike
+      // skills above this IS best-effort per document (EC-5): a document that
+      // vanished from the repository is skipped and logged, never fails the
+      // run — a document is a file a rebase can remove, not a stored row.
+      const { texts: specTexts, paths: specPaths } = await this.resolveProjectContext(
+        agent,
+        skills,
+        repo,
+        runLog,
+      );
+
       const task = taskLine(pull) + rankNote;
 
       // ---- Engine: assemble → single-pass → grounding -----------------------
@@ -271,6 +285,12 @@ export class ReviewRunExecutor {
         // no skills produces a prompt byte-identical to the pre-skills one —
         // which is exactly what makes the with/without comparison meaningful.
         ...(skills.length > 0 ? { skills: skills.map((s) => s.body) } : {}),
+        // Project Context — resolved document texts, untrusted-delimited by
+        // assemblePrompt's own `specs` slot (never built here — Untrusted
+        // inputs §1). Same omit-when-empty spread as `skills`/`callers`/
+        // `repoMap`: an agent with an empty effective set produces a prompt
+        // byte-identical to the pre-feature one (NFR-1, AC-31).
+        ...(specTexts.length > 0 ? { specs: specTexts } : {}),
         // T1.3 — pass the callers digest only when we built one. assemblePrompt
         // omits the section when this is empty/undefined.
         ...(callersDigest ? { callers: callersDigest } : {}),
@@ -383,7 +403,10 @@ export class ReviewRunExecutor {
         })),
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        // Paths actually injected, in injected order — omitted (skipped)
+        // documents are excluded (AC-34, AC-35). `specPaths` only ever grows
+        // on a successful read, so it already IS "what was injected".
+        specs_read: specPaths,
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
@@ -601,6 +624,70 @@ export class ReviewRunExecutor {
     } catch {
       return '';
     }
+  }
+
+  /**
+   * Project Context — resolve the agent's effective document set (direct +
+   * each linked, enabled skill's, in the agent's skill order) and read each
+   * path, in order. ONE `runLog.step` total (NFR-7: at most one extra step
+   * of observable progress) — a per-document skip is a `runLog.info` line
+   * inside it, not a step of its own (R-10).
+   *
+   * Best-effort per document (EC-5): a missing/unreadable attachment is
+   * skipped and logged — paths only, never content (NFR-11) — and the run
+   * proceeds. This is deliberately the OPPOSITE of the skills path above,
+   * which fails the run: a skill is a stored row that cannot vanish under the
+   * user, a document is a file a rebase can remove.
+   *
+   * Does NOT build the `## Project context` section itself — only resolves
+   * texts + paths, which the caller passes into `reviewPullRequest`'s
+   * existing `specs` slot (Untrusted inputs §1: that is what keeps the
+   * untrusted fence unbypassable).
+   */
+  private async resolveProjectContext(
+    agent: AgentRow,
+    skills: PromptSkillRow[],
+    repo: typeof schema.repos.$inferSelect,
+    runLog: RunLogger,
+  ): Promise<{ texts: string[]; paths: string[] }> {
+    return runLog.step(
+      'Resolving project context',
+      async () => {
+        const [agentLinks, ...skillLinksPerSkill] = await Promise.all([
+          this.container.contextDocsRepo.linksFor('agent', agent.id),
+          ...skills.map((sk) => this.container.contextDocsRepo.linksFor('skill', sk.id)),
+        ]);
+        const effectivePaths = resolveEffectiveContextDocs(agentLinks, skillLinksPerSkill);
+        if (effectivePaths.length === 0) {
+          runLog.info('No attached Project Context documents — prompt has no project-context block');
+          return { texts: [], paths: [] };
+        }
+        if (!repo.clonePath) {
+          runLog.info(
+            `project context: repository has no working copy — skipping ${effectivePaths.length} attached document(s)`,
+          );
+          return { texts: [], paths: [] };
+        }
+
+        const texts: string[] = [];
+        const paths: string[] = [];
+        for (const path of effectivePaths) {
+          try {
+            texts.push(await this.container.contextDocs.read(repo.clonePath, path));
+            paths.push(path);
+          } catch (err) {
+            // Path only, never content — matches the rule `PROMPT_SECTION_SOURCE`
+            // above already follows for prompt-section metadata (NFR-11).
+            runLog.info(`project context: skipped "${path}" — ${(err as Error).message}`);
+          }
+        }
+        if (paths.length > 0) {
+          runLog.info(`Project context in prompt (${paths.length}): ${paths.join(', ')}`);
+        }
+        return { texts, paths };
+      },
+      { kind: 'tool' },
+    );
   }
 
   /**

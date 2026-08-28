@@ -148,8 +148,12 @@ Compare the directories in `.claude/skills/` against the table in
 - `routing.md` §1 disagrees with the `paths:` filters in
   `.github/workflows/*.yml` → **WARNING**: local coverage no longer matches CI.
 
-`pr-self-review` itself, `mermaid-diagram` and `engineering-insights` are
-exempt — they are authoring tools, not reviewers.
+**Exempt by kind, not by name:** a skill is exempt from this audit when it
+authors or orchestrates rather than reviews — today that is `pr-self-review`
+itself, `mermaid-diagram`, `engineering-insights` and `run-plan`. Apply the
+criterion, not just the list: adding a skill of that kind should not require
+editing this line, and a hardcoded name list is exactly how A2.3 came to miss
+`mcp-server/` (root `INSIGHTS.md`, 2026-08-24).
 
 ---
 

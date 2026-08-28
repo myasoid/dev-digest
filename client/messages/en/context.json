@@ -10,8 +10,9 @@
   "kb": "{kb}kb",
   "empty": {
     "title": "No spec files yet",
-    "body": "Drop your PRDs, tech specs, and acceptance criteria under .devdigest/specs/. Every agent and the PR brief read them as grounding context."
+    "body": "No markdown was found anywhere in this repository (vendored and build directories excluded). Add PRDs, tech specs, and acceptance criteria as .md files anywhere in the repo — every agent and the PR brief read them as grounding context."
   },
+  "selectPrompt": "Select a document to preview it.",
   "mode": {
     "preview": "preview",
     "edit": "edit"
@@ -20,5 +21,42 @@
     "loadError": "Couldn’t load spec",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "type": {
+    "specs": "Specs",
+    "docs": "Docs",
+    "insights": "Insights"
+  },
+  "usedBy": "Used by {count, plural, one {# agent} other {# agents}}",
+  "footer": {
+    "documents": "{count, plural, one {# document} other {# documents}}",
+    "refreshed": "last refreshed {relative}",
+    "truncated": "Showing the first {shown} documents — this repository has more than the display limit."
+  },
+  "notSynced": {
+    "title": "Repository not synced yet",
+    "body": "This repository has no local working copy yet, so its documents can't be read. Sync it, then come back."
+  },
+  "doc": {
+    "loadError": "Couldn’t load this document"
+  },
+  "attach": {
+    "filter": "Filter documents…",
+    "badge": "{attached} of {total} attached",
+    "badgeSkill": "{attached} attached",
+    "orderHint": "Order matters — earlier docs appear earlier in the assembled `## Project context` block. Toggle to attach.",
+    "inherits": "Any agent using this skill inherits these documents.",
+    "injectedAs": "Injected as an untrusted block (`## Project context`) into every run.",
+    "tokens": "≈ {count} tokens",
+    "tokensEstimate": "Estimated from document size — never a billed token count.",
+    "tokensWarning": "This attached set is large — it will add a meaningful amount to every run's prompt.",
+    "missing": "Missing from the repository — still attached, detach to remove it.",
+    "serializesAs": "Serializes as",
+    "serializesAsHint": "The real `## Project context` heading. Each document below is injected in full inside its own untrusted block.",
+    "goToProjectContext": "Go to Project Context",
+    "noMatchTitle": "No matching documents",
+    "noMatchBody": "Try a different search term.",
+    "preview": "Preview {path}",
+    "dragHandleLabel": "Reorder {path}"
   }
 }

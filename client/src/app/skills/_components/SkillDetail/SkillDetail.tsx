@@ -11,6 +11,7 @@ import type { Skill } from "@devdigest/shared";
 import { TYPE_COLOR, TYPE_ICON } from "../SkillsListView/constants";
 import { ConfigTab } from "./_components/ConfigTab";
 import { PreviewTab } from "./_components/PreviewTab";
+import { ContextTab } from "./_components/ContextTab";
 import { EvalsTab } from "./_components/EvalsTab";
 import { StatsTab } from "./_components/StatsTab";
 import { VersionsTab } from "./_components/VersionsTab";
@@ -49,12 +50,15 @@ export function SkillDetail({
       </div>
       <div style={s.body}>
         {tab === "preview" && <PreviewTab skill={skill} />}
+        {tab === "context" && <ContextTab skill={skill} />}
         {tab === "evals" && <EvalsTab />}
         {tab === "stats" && <StatsTab skill={skill} />}
         {tab === "versions" && <VersionsTab skill={skill} />}
-        {tab !== "preview" && tab !== "evals" && tab !== "stats" && tab !== "versions" && (
-          <ConfigTab skill={skill} onDeleted={onDeleted} />
-        )}
+        {tab !== "preview" &&
+          tab !== "context" &&
+          tab !== "evals" &&
+          tab !== "stats" &&
+          tab !== "versions" && <ConfigTab skill={skill} onDeleted={onDeleted} />}
       </div>
     </div>
   );

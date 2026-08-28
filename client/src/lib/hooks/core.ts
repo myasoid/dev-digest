@@ -15,7 +15,7 @@ import type {
   Repo,
   PrMeta,
   PrDetail,
-  SpecFile,
+  SpecFileList,
   IndexStatus,
 } from "../types";
 
@@ -119,11 +119,15 @@ export function usePullDetail(prId: string | number | null | undefined) {
   });
 }
 
-// ---- Project Context (A3 contract; safe to call once API exposes it) ----
+// ---- Project Context — document list (repo-scoped) + reindex ----
+// Single-document body, agent/skill attachment: ./context.ts.
+// Returns the SpecFileList envelope ({ files, truncated, shown }, amended
+// 2026-08-26) — NFR-13's visible truncation signal needs a set-level home a
+// bare SpecFile[] can't carry. Every reader unwraps `.files`.
 export function useContextFiles(repoId: string | null | undefined) {
   return useQuery({
     queryKey: ["context", repoId],
-    queryFn: () => api.get<SpecFile[]>(`/repos/${repoId}/context`),
+    queryFn: () => api.get<SpecFileList>(`/repos/${repoId}/context`),
     enabled: !!repoId,
   });
 }

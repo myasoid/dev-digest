@@ -69,9 +69,12 @@ tool.
   `plan-verifier`
 - `INSIGHTS.md` entries — owned by the `engineering-insights` skill
 
-Run `engineering-insights` (via `Skill`) at the end of a non-trivial
-doc-writing task, per `CLAUDE.md`'s "After finishing" rule — skip only when
-nothing non-obvious came up.
+**Do not run `engineering-insights`.** The session that invoked you owns that
+step, per `.claude/skills/README.md` ("Orchestrator-only"). You already may not
+write `INSIGHTS.md`; running the skill would load it and its target file a
+second or third time in one feature and produce a competing entry for something
+`implementer` already reported. List anything non-obvious under **Insight
+candidates** in your report instead.
 
 ## Output format — Docs Report
 
@@ -90,6 +93,10 @@ nothing non-obvious came up.
 
 ## Skills applied
 - mermaid-diagram — <where>
+
+## Insight candidates
+- <anything non-obvious the caller may want to record via
+  engineering-insights — or "none". You do not write INSIGHTS.md yourself.>
 
 ## Self-verification
 - <every documented claim traces to actual code/plan/report, not invented>

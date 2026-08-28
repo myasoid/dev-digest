@@ -5,11 +5,18 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import blastMessages from "../../../../../../../../messages/en/blast.json";
 import intentMessages from "../../../../../../../../messages/en/intent.json";
+import briefMessages from "../../../../../../../../messages/en/brief.json";
 
-// Mock the data hooks so the component renders without a real API.
+// Mock the data hooks so the component renders without a real API. Both
+// OverviewTab.tsx (relative import) and PrBriefCard.tsx (`@/` alias) resolve
+// to this same module — Vitest matches by resolved file, so one factory
+// covers both import specifiers.
 vi.mock("../../../../../../../lib/hooks/reviews", () => ({
   usePrIntent: () => ({ data: undefined, isLoading: false }),
   useRefreshIntent: () => ({ mutate: vi.fn(), isPending: false }),
+  usePrBrief: () => ({ data: undefined, isLoading: false }),
+  useRefreshBrief: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  usePrReviews: () => ({ data: undefined }),
 }));
 
 vi.mock("@/lib/hooks/blast", () => ({
@@ -24,7 +31,7 @@ function renderWithIntl(ui: React.ReactElement) {
   return render(
     <NextIntlClientProvider
       locale="en"
-      messages={{ blast: blastMessages, intent: intentMessages }}
+      messages={{ blast: blastMessages, intent: intentMessages, brief: briefMessages }}
     >
       {ui}
     </NextIntlClientProvider>,

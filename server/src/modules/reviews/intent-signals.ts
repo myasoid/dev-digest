@@ -22,7 +22,9 @@ export const ClassificationModelOutput = z.object({
 });
 export type ClassificationModelOutput = z.infer<typeof ClassificationModelOutput>;
 
-const MAX_REFS_PER_KIND = 3;
+/** Exported for reuse by `../pr-brief/pr-brief-signals.ts` (SPEC-cross-06),
+ *  which reuses this cap rather than re-inventing one. */
+export const MAX_REFS_PER_KIND = 3;
 
 /** In-repo spec/doc paths mentioned in free text, e.g. `specs/rate-limiting.md`. */
 export function extractSpecPaths(text: string): string[] {

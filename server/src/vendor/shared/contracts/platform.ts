@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Provider } from './knowledge.js';
+import { Provider, MAX_CONTEXT_DOC_PATH_CHARS } from './knowledge.js';
 import { PrListFinding } from './findings.js';
 
 /**
@@ -260,13 +260,54 @@ export const PrCommentInput = z.object({
 export type PrCommentInput = z.infer<typeof PrCommentInput>;
 
 // ---- Project Context ----
+/**
+ * A document's type — `specs`, `docs` or `insights` — mirrors the design's
+ * three badges. Derived by a path-segment heuristic over the whole working
+ * copy (amended 2026-08-26), not a fixed `.devdigest` subdirectory; the enum
+ * itself is unchanged by that amendment.
+ */
+export const ContextDocType = z.enum(['specs', 'docs', 'insights']);
+export type ContextDocType = z.infer<typeof ContextDocType>;
+
 export const SpecFile = z.object({
-  path: z.string(),
+  path: z.string().max(MAX_CONTEXT_DOC_PATH_CHARS).describe('Repository-relative path'),
+  /** Derived from the file's own path segments (the AC-2 heuristic), not a fixed staging folder. */
+  type: ContextDocType,
+  // Nullish: null in list responses (metadata only, AC-8), non-null in the
+  // single-document response (GET /repos/:id/context/doc).
   content: z.string().nullish(),
   size: z.number().int().nullish(),
   updated_at: z.string().nullish(),
+  /** ceil(chars / 4) over `content` — an estimate, never a billed figure (NFR-2). */
+  est_tokens: z.number().int().nullish(),
+  /**
+   * Agents whose EFFECTIVE document set contains this path — direct
+   * attachment or inherited through a linked, enabled skill (US-8). Nullish
+   * so a caller with no cheap way to compute it can omit the field rather
+   * than report a wrong 0 — same convention as `Agent.skill_count`.
+   */
+  used_by_agents: z.number().int().nullish(),
 });
 export type SpecFile = z.infer<typeof SpecFile>;
+
+/**
+ * The `GET /repos/:id/context` list response (amended 2026-08-26, spec Open
+ * question 8, option C). `SpecFile` is per-document and cannot carry a
+ * set-level "truncated / showing N of many" signal, so the list response is
+ * a small envelope rather than a bare `SpecFile[]` — the smallest additive
+ * change that keeps NFR-13's truncation visible in the typed contract. This
+ * is an internal contract with a single in-repo producer and no published
+ * version, so widening it is not a breaking change (`semver-discipline`);
+ * every reader unwraps `.files`.
+ */
+export const SpecFileList = z.object({
+  files: z.array(SpecFile),
+  /** NFR-13 — the walk stopped at the discovery cap before exhausting the working copy. */
+  truncated: z.boolean(),
+  /** `files.length`, named explicitly so a "showing N of many" message never has to recompute it. */
+  shown: z.number().int(),
+});
+export type SpecFileList = z.infer<typeof SpecFileList>;
 
 export const IndexStatus = z.object({
   status: z.enum(['idle', 'cloning', 'parsing', 'embedding', 'done', 'error']),

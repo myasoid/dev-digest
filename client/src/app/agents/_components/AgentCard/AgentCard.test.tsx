@@ -46,4 +46,14 @@ describe("AgentCard (smoke)", () => {
     renderWithIntl(<AgentCard ag={{ ...AGENT, description: "" }} />);
     expect(screen.getByText("No description")).toBeInTheDocument();
   });
+
+  it("renders the context doc count badge when known", () => {
+    renderWithIntl(<AgentCard ag={{ ...AGENT, context_doc_count: 2 }} />);
+    expect(screen.getByText("2 docs")).toBeInTheDocument();
+  });
+
+  it("omits the context doc count badge when it is not known", () => {
+    renderWithIntl(<AgentCard ag={{ ...AGENT, context_doc_count: null }} />);
+    expect(screen.queryByText(/docs/)).not.toBeInTheDocument();
+  });
 });

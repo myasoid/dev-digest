@@ -142,6 +142,13 @@ export const Skill = z.object({
   used_by_agents: z.number().int().nullish(),
   pull_rate: z.number().nullable().optional(),
   accept_rate: z.number().nullable().optional(),
+  /**
+   * How many Project Context documents are attached to this skill — a
+   * read-only count for the card footer / tab badge. Nullish for the same
+   * reason as `used_by_agents`: a caller with no cheap way to compute it
+   * should omit the field rather than report a wrong 0.
+   */
+  context_doc_count: z.number().int().nullish(),
 });
 export type Skill = z.infer<typeof Skill>;
 
@@ -347,6 +354,12 @@ export const Agent = z.object({
    * report a wrong 0.
    */
   skill_count: z.number().int().nullish(),
+  /**
+   * How many Project Context documents are directly attached to this agent —
+   * a read-only count for the card footer / tab badge, same "omit rather
+   * than report a wrong 0" convention as `skill_count`.
+   */
+  context_doc_count: z.number().int().nullish(),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -356,6 +369,53 @@ export const AgentSkillLink = z.object({
   order: z.number().int(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
+
+// ---- Project Context — attachment (agent/skill → document link) ----
+/**
+ * Repo-relative document path bound. `path` is the leading column of
+ * `context_doc_links`' composite btree PK, and Postgres rejects an index row
+ * over ~2704 bytes — the exact failure `db/schema/context.ts:20-29` already
+ * documents for `symbols.name`. 1024 chars stays comfortably under that even
+ * at 4 bytes/code point.
+ */
+export const MAX_CONTEXT_DOC_PATH_CHARS = 1024;
+
+/**
+ * A repo-relative document path. Rejects absolute paths and any `..` segment
+ * at the SCHEMA layer — the first of two traversal gates (AC-16): a
+ * malformed path never reaches a handler. The adapter's `realpath`-based
+ * containment check (`src/adapters/context-docs/fs.ts`) is the second,
+ * authoritative gate for a symlink that only resolves outside the working
+ * copy at read time.
+ */
+export const ContextDocPath = z
+  .string()
+  .min(1)
+  .max(MAX_CONTEXT_DOC_PATH_CHARS)
+  .refine((p) => !p.startsWith('/') && !p.split('/').includes('..'), {
+    message: 'path must be repository-relative, without ".." segments',
+  });
+export type ContextDocPath = z.infer<typeof ContextDocPath>;
+
+/**
+ * One document attached to an agent or a skill, with its explicit order.
+ * Modelled directly on `AgentSkillLink` above — membership plus order, one
+ * level up. Deliberately no document id: the path IS the identity (EC-12),
+ * because a document is a file in a working copy, never a row anywhere.
+ */
+export const ContextDocLink = z.object({
+  owner_kind: z.enum(['agent', 'skill']),
+  owner_id: z.string(),
+  path: ContextDocPath,
+  order: z.number().int(),
+});
+export type ContextDocLink = z.infer<typeof ContextDocLink>;
+
+/** Set-and-reorder in one call — the same shape `SetSkillsBody` uses for `POST /agents/:id/skills`. */
+export const SetContextDocsBody = z.object({
+  paths: z.array(ContextDocPath),
+});
+export type SetContextDocsBody = z.infer<typeof SetContextDocsBody>;
 
 // The immutable config snapshot captured in `agent_versions` whenever an agent's
 // config changes (everything but `enabled`). Mirrors the shape written by the

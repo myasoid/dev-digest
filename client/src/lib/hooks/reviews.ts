@@ -9,6 +9,7 @@ import { notify } from "../toast";
 import type {
   FindingActionKind,
   Intent,
+  PrBrief,
   PrReviewComment,
   ReviewRecord,
   ReviewRunResponse,
@@ -245,5 +246,25 @@ export function useRefreshIntent(prId: string | null | undefined) {
   return useMutation({
     mutationFn: () => api.post<Intent>(`/pulls/${prId}/intent/refresh`),
     onSuccess: (intent) => qc.setQueryData(["pr-intent", prId], intent),
+  });
+}
+
+// ---- PR Brief card (SPEC-cross-06) -----------------------------------------
+/** The cached brief for a PR (`null` when never generated). Never triggers a
+ *  generation itself — that happens only via the manual refresh route. */
+export function usePrBrief(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["pr-brief", prId],
+    queryFn: () => api.get<PrBrief | null>(`/pulls/${prId}/brief`),
+    enabled: !!prId,
+  });
+}
+
+/** Force a fresh generation (ignores any cache) via the manual refresh route. */
+export function useRefreshBrief(prId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<PrBrief>(`/pulls/${prId}/brief/refresh`),
+    onSuccess: (brief) => qc.setQueryData(["pr-brief", prId], brief),
   });
 }

@@ -1,6 +1,6 @@
 # reviewer-core/specs
 
-One file per engine change: `NN-feature-name.md`.
+One file per engine change: `YYYY-MM-DD-feature-name.md`.
 
 ```markdown
 # <Feature>

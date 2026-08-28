@@ -46,35 +46,45 @@ export interface UpdateSkillInput {
 export class SkillsService {
   private repo: SkillsRepository;
 
-  constructor(container: Container) {
+  constructor(private container: Container) {
     this.repo = new SkillsRepository(container.db);
   }
 
   async list(workspaceId: string): Promise<Skill[]> {
     const windowStart = daysAgo(DEFAULT_STATS_WINDOW_DAYS);
-    const [rows, usedBy, runsWithSkill, runsTotal, findings] = await Promise.all([
+    const [rows, usedBy, runsWithSkill, runsTotal, findings, contextDocCounts] = await Promise.all([
       this.repo.list(workspaceId),
       this.repo.usedByCounts(workspaceId),
       this.repo.runsWithSkillCounts(workspaceId, windowStart),
       this.repo.runsTotalCounts(workspaceId, windowStart),
       this.repo.findingsCounts(workspaceId, windowStart),
+      this.container.contextDocsRepo.linkCounts(workspaceId, 'skill'),
     ]);
     return rows.map((row) =>
-      toSkillDto(row, usageFor(row.id, usedBy, runsWithSkill, runsTotal, findings)),
+      toSkillDto(
+        row,
+        usageFor(row.id, usedBy, runsWithSkill, runsTotal, findings),
+        contextDocCounts.get(row.id) ?? 0,
+      ),
     );
   }
 
   async get(workspaceId: string, id: string): Promise<Skill | undefined> {
     const windowStart = daysAgo(DEFAULT_STATS_WINDOW_DAYS);
-    const [row, usedBy, runsWithSkill, runsTotal, findings] = await Promise.all([
+    const [row, usedBy, runsWithSkill, runsTotal, findings, contextDocCounts] = await Promise.all([
       this.repo.getById(workspaceId, id),
       this.repo.usedByCounts(workspaceId, id),
       this.repo.runsWithSkillCounts(workspaceId, windowStart, id),
       this.repo.runsTotalCounts(workspaceId, windowStart, id),
       this.repo.findingsCounts(workspaceId, windowStart, id),
+      this.container.contextDocsRepo.linkCounts(workspaceId, 'skill', id),
     ]);
     if (!row) return undefined;
-    return toSkillDto(row, usageFor(id, usedBy, runsWithSkill, runsTotal, findings));
+    return toSkillDto(
+      row,
+      usageFor(id, usedBy, runsWithSkill, runsTotal, findings),
+      contextDocCounts.get(id) ?? 0,
+    );
   }
 
   async create(workspaceId: string, input: CreateSkillInput): Promise<Skill> {
@@ -98,8 +108,17 @@ export class SkillsService {
     return row ? toSkillDto(row) : undefined;
   }
 
+  /**
+   * Delete a skill AND its `context_doc_links` rows, in ONE transaction — the
+   * same reason `AgentsService.delete` does this (the polymorphic owner_id
+   * has no FK to cascade the link cleanup on its own).
+   */
   async delete(workspaceId: string, id: string): Promise<boolean> {
-    return this.repo.deleteById(workspaceId, id);
+    return this.container.db.transaction(async (tx) => {
+      const deleted = await this.repo.deleteById(workspaceId, id, tx);
+      if (deleted) await this.container.contextDocsRepo.deleteLinksForOwner(tx, 'skill', id);
+      return deleted;
+    });
   }
 
   /**

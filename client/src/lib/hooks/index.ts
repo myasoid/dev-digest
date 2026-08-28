@@ -17,6 +17,14 @@ export {
 } from "./core";
 
 export {
+  useContextDoc,
+  useAgentContextDocs,
+  useSetAgentContextDocs,
+  useSkillContextDocs,
+  useSetSkillContextDocs,
+} from "./context";
+
+export {
   useAgents,
   useAgent,
   useCreateAgent,

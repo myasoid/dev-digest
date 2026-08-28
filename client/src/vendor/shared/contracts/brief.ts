@@ -2,8 +2,14 @@ import { z } from 'zod';
 import { Severity } from './findings.js';
 
 /**
- * PR Brief building blocks: Intent, Blast radius, Risks, PR History,
- * Smart Diff. Composed into PrBrief.
+ * PR Brief building blocks: Intent, Smart Diff, and the PR Brief card itself
+ * (SPEC-cross-06).
+ *
+ * `BlastRadius`/`Risks`/`PrHistory` (an earlier, heavier "PR Brief" concept —
+ * `{ intent, blast, risks, history }`) were removed 2026-08-27 when `PrBrief`
+ * was repurposed to the new card shape below: grep confirmed zero importers
+ * outside this file, and the current blast-summary view lives in
+ * `contracts/pr-blast.ts`'s `PrBlastMap` instead.
  */
 
 // ---- Intent ----
@@ -47,70 +53,6 @@ export const Intent = z.object({
   head_sha: z.string().nullish(),
 });
 export type Intent = z.infer<typeof Intent>;
-
-// ---- Blast radius ----
-export const ChangedSymbol = z.object({
-  name: z.string(),
-  file: z.string(),
-  kind: z.string(),
-});
-export type ChangedSymbol = z.infer<typeof ChangedSymbol>;
-
-export const BlastCaller = z.object({
-  name: z.string(),
-  file: z.string(),
-  line: z.number().int(),
-});
-export type BlastCaller = z.infer<typeof BlastCaller>;
-
-export const DownstreamImpact = z.object({
-  symbol: z.string(),
-  callers: z.array(BlastCaller),
-  endpoints_affected: z.array(z.string()),
-  crons_affected: z.array(z.string()),
-});
-export type DownstreamImpact = z.infer<typeof DownstreamImpact>;
-
-export const BlastRadius = z.object({
-  changed_symbols: z.array(ChangedSymbol),
-  downstream: z.array(DownstreamImpact),
-  summary: z.string(),
-});
-export type BlastRadius = z.infer<typeof BlastRadius>;
-
-// ---- Risks ----
-export const RiskSeverity = z.enum(['high', 'medium', 'low']);
-export type RiskSeverity = z.infer<typeof RiskSeverity>;
-
-export const Risk = z.object({
-  kind: z.string(),
-  title: z.string(),
-  explanation: z.string(),
-  severity: RiskSeverity,
-  file_refs: z.array(z.string()),
-});
-export type Risk = z.infer<typeof Risk>;
-
-export const Risks = z.object({
-  risks: z.array(Risk),
-});
-export type Risks = z.infer<typeof Risks>;
-
-// ---- PR History ----
-export const PrHistoryItem = z.object({
-  pr_number: z.number().int(),
-  title: z.string(),
-  merged_at: z.string(),
-  author: z.string(),
-  files_overlap: z.array(z.string()),
-  notes: z.string(),
-});
-export type PrHistoryItem = z.infer<typeof PrHistoryItem>;
-
-export const PrHistory = z.object({
-  history: z.array(PrHistoryItem),
-});
-export type PrHistory = z.infer<typeof PrHistory>;
 
 // ---- Smart Diff ----
 export const SmartDiffRole = z.enum(['core', 'wiring', 'boilerplate']);
@@ -159,11 +101,53 @@ export const SmartDiff = z.object({
 });
 export type SmartDiff = z.infer<typeof SmartDiff>;
 
-// ---- Composed PR Brief (pr_brief.json) ----
+// ---- PR Brief card (SPEC-cross-06, pr_brief.json) ----
+/**
+ * PR-level risk scale — distinct from `Verdict` (an action: request_changes/
+ * approve/comment) and `Severity` (per-finding: CRITICAL/WARNING/SUGGESTION).
+ */
+export const RiskLevel = z.enum(['high', 'medium', 'low']);
+export type RiskLevel = z.infer<typeof RiskLevel>;
+
+export const BriefRisk = z.object({
+  title: z.string(),
+  explanation: z.string(),
+  /** File paths / endpoint labels this risk points at — MUST be a subset of
+   *  the generation input set (grounding, AC-7). Server-enforced, never
+   *  trusted from the model as-is. */
+  refs: z.array(z.string()),
+});
+export type BriefRisk = z.infer<typeof BriefRisk>;
+
+export const BriefFocusItem = z.object({
+  /** File path or endpoint label — MUST appear in the input set (grounding,
+   *  AC-7). Drives the clickable file:line link. */
+  ref: z.string(),
+  line: z.number().int().nullable(),
+  description: z.string(),
+});
+export type BriefFocusItem = z.infer<typeof BriefFocusItem>;
+
+/**
+ * PR Brief card: one-LLM-call `{ what, why, risk_level, risks[], review_focus[] }`
+ * shown at the top of the PR Overview tab. Repurposes the earlier, heavier
+ * `PrBrief` concept (`{ intent, blast, risks, history }`) — see the file
+ * docstring above. Cached in `pr_brief` (one row per PR, overwritten on
+ * regenerate), keyed to `head_sha` for staleness (AC-3, AC-4).
+ */
 export const PrBrief = z.object({
-  intent: Intent,
-  blast: BlastRadius,
-  risks: Risks,
-  history: PrHistory,
+  what: z.string(),
+  why: z.string(),
+  risk_level: RiskLevel,
+  risks: z.array(BriefRisk),
+  review_focus: z.array(BriefFocusItem),
+  /** Which inputs were actually present at generation (e.g. `intent`,
+   *  `blast`, `issue`, `specs`, `diff_shape`) — drives the partial indicator
+   *  (AC-13). Server-set from what was actually used, never model-reported. */
+  signals_used: z.array(z.string()),
+  /** Head SHA the brief was generated against — cache key + file:line pin +
+   *  staleness (AC-3, AC-4, AC-9). Nullish for rows written before this
+   *  field existed, mirroring `Intent.head_sha`. */
+  head_sha: z.string().nullish(),
 });
 export type PrBrief = z.infer<typeof PrBrief>;

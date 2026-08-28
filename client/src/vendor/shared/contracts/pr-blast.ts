@@ -8,9 +8,11 @@ import { BlastCallerRow, DegradedReason } from './blast.js';
  * `contracts/blast.ts`) but carries a three-state `status`, tri-level endpoint
  * discovery (depth 1 and 2), and PR-scoped metadata (prior PRs).
  *
- * Naming: `BlastRadius` is already taken in `contracts/brief.ts` (a `PrBrief`
- * summary field with a different shape). `BlastResult` is repo-intel's raw
- * facade return in `contracts/blast.ts`. This is the PR-scoped view — `PrBlastMap`.
+ * Naming: `BlastRadius` was taken in `contracts/brief.ts` (a `PrBrief`
+ * summary field with a different shape) at the time this was named — removed
+ * 2026-08-27 when `PrBrief` was repurposed (SPEC-cross-06). `BlastResult` is
+ * repo-intel's raw facade return in `contracts/blast.ts`. This is the
+ * PR-scoped view — `PrBlastMap`.
  *
  * Served by `GET /pulls/:id/blast` (server/src/modules/blast/routes.ts).
  */
