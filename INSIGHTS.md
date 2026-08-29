@@ -109,6 +109,17 @@ input but left responses unchecked, so contract drift surfaced in the browser.
 
 ## What Works
 
+- **2026-08-29** — A "does not fabricate a violation" negative-control case (a
+  clean, no-violation fixture fed to the same prompt) is worth writing for
+  **any** skill/agent eval whose job is flagging severity-tiered findings, not
+  just `architecture-reviewer` where the pattern started (`BENIGN_PROMPT` in
+  `agents/architecture-reviewer/architecture-reviewer.cases.ts`). Added the
+  same shape to `evals/skills/dependency-checker/dependency-checker.cases.ts`
+  ("does not fabricate a P0/P1 finding … (negative control)") — without it, an
+  eval only proves the artifact *can* find a real problem, never that it
+  stays quiet when there isn't one, which is the failure mode that erodes
+  trust in a severity-tiered report the fastest.
+
 - **2026-08-14** — A/B-ing a prompt change against a real model needs **repeats,
   and the right metric** — a single pair of runs is noise, not evidence. Building
   the skills control experiment, the first version ran each condition once and
@@ -246,6 +257,43 @@ _None yet._
 
 ## Tool & Library Notes
 
+- **2026-08-29** — A judge-scored eval case that asserts a specific graph edge
+  or relationship must appear needs an **unambiguous** synthetic fixture, or
+  the judge's pass rate looks like model flakiness when it's actually fixture
+  ambiguity. `evals/skills/dependency-checker/dependency-checker.cases.ts`'s
+  fixture said `client imports "@shared/review-types" (same alias as server)`
+  — the model legitimately read this two ways across repeated runs: a real
+  client→server edge, or an intra-package alias to client's own local copy.
+  Both readings are defensible from the sentence alone, so the eval flapped
+  between pass/fail on identical prompts. Fixed by making the fixture state
+  the actual convention explicitly (per this file's own **2026-08-04** entry:
+  server/client vendor *independent, unsynced* copies of shared contracts, so
+  that import does not cross the package boundary at all). When a quality eval
+  case hinges on "does X count as edge/violation/dependency Y", read the
+  fixture line back as a judge would and check it can only be read one way.
+
+- **2026-08-29** — A SKILL.md `description:` frontmatter field must be quoted if
+  its text contains a colon followed by a space (e.g. `Trigger terms: "x", "y"`).
+  As a plain (unquoted) YAML scalar, a mid-string `: ` is parsed as a nested
+  mapping key, and gray-matter/js-yaml throws rather than warns — this crashed
+  `evals/src/skill-quality.ts` on `.claude/skills/onion-architecture/SKILL.md`
+  with no per-file isolation, halting the whole static gate. Not just an eval
+  quirk: any tool parsing SKILL.md frontmatter as YAML hits the same throw.
+  Fixed by quoting the description, matching the convention already used by
+  `fastify-best-practices`, `mermaid-diagram`, `security`, etc. When adding a
+  new SKILL.md, quote `description:` if it contains `: ` anywhere in the text.
+
+- **2026-08-29** — pnpm ≥10 no longer reads `pnpm.onlyBuiltDependencies` from a
+  package's `package.json` (the field is silently ignored with a warning); it
+  must live in `pnpm-workspace.yaml` as top-level `onlyBuiltDependencies: [...]`.
+  Even with that fixed, `pnpm install` still leaves dependency postinstall
+  scripts (e.g. esbuild, pulled in transitively via `tsx`/`vitest`) un-run and
+  prints `[ERR_PNPM_IGNORED_BUILDS]` on every install until you explicitly run
+  `pnpm approve-builds --all` once (writes an `allowBuilds:` block back into
+  `pnpm-workspace.yaml`). Hit standing up `evals/` fresh — a first-time
+  `pnpm install` there looks like it succeeded but silently skips esbuild's
+  native-binary postinstall. `evals/pnpm-workspace.yaml`
+
 - **2026-08-14** — A `PreToolUse` hook on `Bash` sees only the command *string*,
   and both consequences bite immediately. (1) A substring match fires on any
   command that merely mentions the guarded text — `scripts/pr-gate.sh`'s first
@@ -290,6 +338,18 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+- **2026-08-29** — `cd evals && pnpm eval:workflow` failing with `<path> not
+  read` for `server/docs/api-contracts.md`, `reviewer-core/docs/pipeline.md`,
+  or `reviewer-core/insights/gotchas.md` means those specific files don't
+  exist yet, not a harness bug: `evals/workflow/review-workflow.cases.ts`
+  asserts on doc paths that the "Read when" rows in `AGENTS.md` promise but
+  that were never written. The model correctly falls back to whatever
+  adjacent docs (`README.md`, `INSIGHTS.md`) actually exist. Fix is to write
+  the missing doc(s) and add the matching "Read when" row, not to loosen the
+  case. Once a routed doc exists, a tight `maxTurns` on that case (e.g. 5) can
+  still flake because the model now has more real docs to explore before
+  reaching the right one — give it the same room as sibling routing cases
+  (8 turns) rather than the bare minimum.
 - **2026-08-24** — **A new package silently escapes the lockfile gate**, because
   `conventions.md` A2.3 enumerates paths instead of deriving them. `mcp-server/`
   is an npm package (root `AGENTS.md`, "Conventions") yet carries **both**

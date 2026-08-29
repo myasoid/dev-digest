@@ -435,6 +435,23 @@ _None yet._
   that is the only thing needed for a 404. Assume the same gap in any
   `lookup-then-update` pair here. `server/src/modules/reviews/findings.ts:25`
 
+- **2026-08-29** — pgvector column dimension mismatch silently breaks all
+  queries that touch the column. When switching embedding models (e.g. from
+  OpenAI's 1536-dim to Anthropic's 1024-dim), any `WHERE` or `ORDER BY` clause
+  on the vector column returns zero rows without error — the comparison operators
+  silently fail. Postgres allows inserting vectors of any dimension into a typed
+  column, but the query planner rejects the comparison. The vector values are
+  stored fine; only comparisons against mismatched dimensions fail. Fix: before
+  changing the embedding model in code, either (1) migrate the column to the new
+  dimension using `ALTER TABLE <table> ALTER COLUMN <vec_col> SET DATA TYPE
+  vector(<new_dim>)` (Postgres 14+, slow on large tables, acquires
+  `AccessExclusiveLock`); or (2) create a new column, backfill it, and drop the
+  old. Use `pnpm db:generate && pnpm db:migrate` to make the change durable.
+  Without the migration, a deploy that changes the embedding model leaves
+  production reading an empty result set until someone runs the DDL. Watch for
+  zero-row complaints with no error in the logs paired with recent embedding-model
+  changes in code or release notes.
+
 ## Open Questions
 
 _None yet._
