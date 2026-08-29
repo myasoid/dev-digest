@@ -359,8 +359,26 @@ both moved onto the target.
 
 `EvalRunRecord` gains `suite_run_id: string`, `findings_kept`,
 `findings_dropped`, `case_revision: number` (which revision this row measured),
-and `violations: EvalTarget[]` (which targets were hit, plus synthetic entries
-for unlisted findings under `forbid`) — the "why did this fail" the UI needs.
+and `violations: EvalViolation[]`.
+
+`EvalTarget[]` cannot carry violations: an unlisted-`forbid` violation has no
+target to point at, and a target alone never says *which finding* tripped it. A
+violation is finding-shaped, with an optional target:
+
+```ts
+EvalViolation = z.object({
+  reason: z.enum(['must_not_flag', 'unlisted']),
+  /** The offending finding — always present; this is the "what happened". */
+  finding: Finding,
+  /** The must_not_flag target it hit. Null when reason is 'unlisted'. */
+  target: EvalTarget.nullable(),
+})
+```
+
+Unmatched `must_find` targets are **not** violations — they are misses, reported
+separately as `missed: EvalTarget[]`. Folding the two together would put a
+false negative and a false positive in one list under one label, which is
+precisely the distinction the whole scorer exists to draw.
 
 `EvalDashboard.recent_runs` changes element type from `EvalRunRecord` (per case)
 to `EvalSuiteRun` (per set). This is the contract half of gap 1; the current type
@@ -391,10 +409,14 @@ came from, or the set silently shrinks every time an old PR is cleaned up. That
 is a regression suite quietly losing its regressions.
 
 **`revision` bumps only on a measurement-affecting edit** — `input_diff`,
-`targets`, or `unlisted`. Renames and notes do not touch it. This is the same
-split `isConfigChange` already draws for agents (`agents/repository.ts:122`), and
-it is what lets the trend chart break its line honestly at the point the test
-changed instead of drawing through it (gap 6).
+`targets`, or `unlisted`. Renames and notes do not touch it. That is what lets
+the trend chart break its line honestly at the point the test changed instead of
+drawing through it (gap 6).
+
+`isConfigChange` (`server/src/modules/agents/helpers.ts:70`) is the structural
+precedent — one predicate deciding whether an edit is version-worthy — but
+**not** the behavioural one: it bumps on `name` and `description` too. Copy its
+shape, not its field list. A case renamed to fix a typo must not break the trend.
 
 Cases are **not** versioned into a history table. A suite run records the
 `case_revision` it measured and the set-level `case_set_revision`; when those
@@ -424,16 +446,34 @@ scorer deliberately does not catch; see *Open questions*.
 kinds coexist inside one case, so scoring iterates targets and never branches on
 the case.
 
-- `TP` = `must_find` targets matched; `FN` = `must_find` targets unmatched.
-  `recall = TP / (TP + FN)`.
+**Resolve each finding against at most one target, most specific first.** A
+finding can overlap both a `must_find` and a `must_not_flag` target; without a
+rule it would score TP and FP simultaneously. Order: `must_not_flag` wins. A
+range the user explicitly said not to flag is a stronger, more recent statement
+than a range they said to find, and scoring it as a hit would let an agent earn
+recall for producing exactly the noise that was dismissed.
+
+Both counters are then in the **same unit — findings, not targets** — which is
+what makes `TP / (TP + FP)` a ratio rather than a mixture:
+
+- `TP` = grounded findings matching at least one `must_find` target. One finding
+  spanning three targets counts **once**.
+- `FN` = `must_find` targets no finding matched. Counted over *targets*, which is
+  correct: recall asks what share of the expected set was found.
+  `recall = matched must_find targets / all must_find targets`.
 - `FP` = grounded findings that either match a `must_not_flag` target, **or**
   match no target at all in a case whose `unlisted` is `'forbid'`. One finding
-  counts once even if it overlaps several targets.
+  counts once regardless of how many targets it hits.
   `precision = TP / (TP + FP)`.
 - `citation_accuracy = Σ kept / Σ (kept + dropped)` over all cases, taken from
   `ReviewOutcome` at run time.
-- A case passes when every one of its `must_find` targets matched and it produced
-  zero `FP`. `cases_passed / cases_total` is the `17/20`.
+- A case passes when every one of its `must_find` targets matched **and** it
+  produced zero `FP` — which, under `unlisted: 'forbid'`, includes any finding
+  matching no target at all. `cases_passed / cases_total` is the `17/20`.
+
+Recall's denominator is targets and precision's is findings **on purpose**, and
+the two therefore do not share a denominator. Say so wherever both are shown; a
+reader who assumes one confusion matrix produced both will misread every delta.
 
 **Under the default `unlisted: 'ignore'`, an extra finding is not a false
 positive.** An agent that finds the planted bug *and* a second real bug in the
@@ -492,9 +532,14 @@ The executor's contract, which is gap 5's fix:
 - `repoMap`, `callers`, `intent`, `specs`, `memory` — **not supplied**,
   unconditionally, regardless of `agent.repo_intel`. This is the freeze.
 - `prDescription`, `task` — only from `case.input_meta`.
-- `temperature` stays at the provider default of 0 (`llm/openrouter.ts:72`).
-  There is no seed parameter; determinism is best-effort, which is the other
-  reason the experiment needs repeats.
+- `temperature` must be **pinned to 0 explicitly, by the eval executor**, and
+  recorded on the run. Do not inherit the provider default: only OpenRouter
+  defaults to 0 (`reviewer-core/src/llm/openrouter.ts:72`) — `openai.ts:74` and
+  `anthropic.ts:72` both default to `?? 0.2`. An agent on those providers would
+  otherwise be A/B-tested at a sampling temperature, and the run-to-run spread
+  would be read as a prompt effect. There is no seed parameter on any provider,
+  so determinism stays best-effort even at 0 — the other reason the experiment
+  needs repeats.
 
 `POST /agents/:id/eval-runs` follows the review pattern: create the
 `eval_suite_runs` row as `running`, return `202 { run_id }`, execute in the
@@ -554,10 +599,13 @@ routes ship today.
   alone and guess.
 - **`/eval` page** — `client/src/app/eval/page.tsx`. `activeKeyFor` already
   routes to it (`helpers.ts:35`).
-- **Evals tab** — add to `TABS` (`AgentEditor/constants.ts:11`) **and** to
-  `VALID_TABS` (`agents/[id]/page.tsx:15`); missing the second makes `?tab=evals`
-  fall back to `config` with no error. `AgentEditor.tsx:23` is a two-way ternary
-  and becomes a switch.
+- **Evals tab** — one entry appended to `TABS`
+  (`client/src/app/agents/[id]/_components/AgentEditor/constants.ts:11`, today
+  `config` / `skills` / `context`). `VALID_TABS` is **derived** —
+  `TAB_KEYS = TABS.map(tb => tb.key)` (`constants.ts:18`) — so no second list
+  needs editing. The render is a three-way nested ternary
+  (`AgentEditor.tsx:24-30`) and should become a switch or a lookup map at four
+  tabs rather than a fourth nesting level.
 - **FindingCard** gains a "Turn into eval case" action next to Accept/Dismiss
   (`FindingCard.tsx:110`), disabled with a tooltip until the finding is decided —
   matching the 422 above rather than letting the user discover it by clicking.

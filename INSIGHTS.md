@@ -243,7 +243,7 @@ input but left responses unchecked, so contract drift surfaced in the browser.
   shipped schema without a new table. Related naming hazard: the repo now holds
   three unrelated things called "eval" — root `evals/` (a separate pnpm package
   of offline Claude Code harness evals, not this feature and never imported by
-  it), the `EvalRun` contract, and these tables. `specs/05-eval-pipeline.md`
+  it), the `EvalRun` contract, and these tables. `specs/2026-08-29-eval-pipeline.md`
 
 - **2026-08-04** — `server/src/vendor/shared/contracts/*.ts` and
   `client/src/vendor/shared/contracts/*.ts` are two independent files with no
