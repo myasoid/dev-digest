@@ -149,7 +149,20 @@ input but left responses unchecked, so contract drift surfaced in the browser.
 
 ## What Doesn't Work
 
-_None yet._
+- **2026-08-29** — `citation_accuracy` (the share of findings that survive the
+  grounding gate) **cannot be recomputed from the database.** `groundFindings`
+  runs *inside* `reviewPullRequest`, only survivors are ever written to
+  `findings`, and `ReviewOutcome.dropped[]` dies with the call — the one
+  persisted trace is `agent_runs.grounding`, a **text** column holding
+  `"14/16 passed"`. Read the counts off `ReviewOutcome` at run time and store
+  them as integers; regex-ing that display string back into a metric is the
+  tempting wrong fix. Second trap in the same number: `FULL_FILE_KINDS`
+  (`secret_leak`, `lethal_trifecta`, `phantom`, `hook`) skip the
+  line-intersection check and only need the file to be present, so an agent
+  emitting mostly those scores near 100% almost regardless of prompt quality —
+  which reads as "citations are accurate" when it means "the gate had little to
+  check". Disclose the exemption wherever the number is shown.
+  `reviewer-core/src/grounding.ts:16`, `reviewer-core/src/grounding.ts:52`
 
 ## Codebase Patterns
 
@@ -216,6 +229,21 @@ _None yet._
   scoping difference, not a detail — and at spec time it is still free to act
   on. `server/src/vendor/shared/contracts/platform.ts:262`,
   `server/src/modules/reviews/run-executor.ts:386`, `specs/2026-08-25-project-context.md`
+  **Recurred 2026-08-29 (Eval Pipeline):** same inventory, plus a new twist —
+  the pre-wired pieces can **disagree with each other**, so check they are
+  mutually consistent before designing to either one. `eval_cases`/`eval_runs`
+  (`server/src/db/schema/eval.ts:7`), the `EvalRun`/`EvalCase` contracts and a
+  whole `contracts/eval-ci.ts` API layer all pre-exist — but `EvalRun`
+  (`knowledge.ts:58`) is **set**-shaped (`traces_passed`, `traces_total`,
+  `per_trace[]`) while the `eval_runs` **table** is **case**-shaped (`case_id`
+  FK, no `agent_id`, no version, no grouping id), and `EvalRunResult`
+  (`eval-ci.ts:49`) then pairs a single `case_id` with the set-shaped metrics.
+  So no row can mean "this agent, at v7, over all 20 cases", and run history,
+  the metric trend and any version-vs-version compare are unbuildable on the
+  shipped schema without a new table. Related naming hazard: the repo now holds
+  three unrelated things called "eval" — root `evals/` (a separate pnpm package
+  of offline Claude Code harness evals, not this feature and never imported by
+  it), the `EvalRun` contract, and these tables. `specs/05-eval-pipeline.md`
 
 - **2026-08-04** — `server/src/vendor/shared/contracts/*.ts` and
   `client/src/vendor/shared/contracts/*.ts` are two independent files with no

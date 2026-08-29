@@ -95,48 +95,6 @@ _None yet._
 
 ## Codebase Patterns
 
-- **2026-08-26** — A discovered document's **listed path is its stored
-  identity** (`context_doc_links.path`), so widening `FsContextDocsAdapter`'s
-  walk from three fixed `.devdigest/<type>/` folders to the whole working copy
-  could not simply switch to true repo-relative paths: the old code stripped
-  the `.devdigest/<type>` prefix (`.devdigest/specs/x.md` listed as
-  `specs/x.md`), and every existing attachment/fixture/test used that
-  stripped form as identity. Emitting the true path for those same files would
-  have silently detached every existing attachment. Fix: `list()` keeps
-  emitting the historic stripped form for files still found under
-  `.devdigest/<specs|docs|insights>/` (`legacyIdentityPath()`) and the true
-  repo-relative path only for newly-discoverable files elsewhere; `read()`'s
-  containment check tries the legacy nested location *before* the literal
-  path, both through the same `realpath` escape gate. General shape to watch
-  for: before widening what a discovery/list function scans, check whether
-  its *output shape* — not just its output set — is load-bearing somewhere
-  that stores it. `server/src/adapters/context-docs/fs.ts`
-  (`legacyIdentityPath`, `resolveContained`'s two-candidate lookup)
-
-- **2026-08-26** — When a spec's EARS wording says "classify by X or Y
-  ancestor segment" but a real fixture needs a *third* case to keep working,
-  the fixture wins and the wording is incomplete, not the fixture wrong. The
-  amended spec's AC-2 literally named only `specs`/`docs` ancestor segments;
-  the seeded insights fixture is `.devdigest/insights/rate-limiting.md` — not
-  literally named `insights.md`, so it only classifies correctly if the
-  heuristic *also* scans for an `insights` ancestor segment. Implemented that
-  way, deliberately wider than the AC's literal text, and confirmed by reading
-  the actual seed fixture rather than trusting the AC's prose. A future
-  "fix" that narrows the heuristic back to the AC's literal wording would
-  silently break this. `server/src/adapters/context-docs/types.ts`
-  (`typeForContextDocPath`), `server/src/db/seed.ts` (insights fixture
-  filename)
-
-- **2026-08-26** — `MockContextDocsPort` (`server/src/adapters/mocks.ts`) cannot
-  exercise a UTF-8-decode-failure path by construction: it is keyed by JS
-  strings, which are always already-valid text, so a mocked "read" can never
-  fail to decode. Its own docstring claims it makes "AC-1…AC-11" testable,
-  which overstates coverage for exactly the one case that needs undecodable
-  bytes — that path (`ContextDocReadError` naming the file's path, no partial
-  content returned) can only be tested against the real
-  `FsContextDocsAdapter`, with a temp-dir fixture containing an invalid byte
-  sequence. `server/src/adapters/context-docs/fs.test.ts`
-
 - **2026-08-21** — `getBlastRadius`'s caller cap is named and documented
   per-symbol (`MAX_CALLERS_PER_SYMBOL = 20`, *"Caller fan-out cap per changed
   symbol"*, `repo-intel/constants.ts`) but applied **globally**:
