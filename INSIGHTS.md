@@ -244,6 +244,18 @@ input but left responses unchecked, so contract drift surfaced in the browser.
   three unrelated things called "eval" — root `evals/` (a separate pnpm package
   of offline Claude Code harness evals, not this feature and never imported by
   it), the `EvalRun` contract, and these tables. `specs/2026-08-29-eval-pipeline.md`
+  **Sharpened at PLAN time, same day:** a spec that catalogues these
+  disagreements can still miss one a field deeper, so re-grep the contracts for
+  the *shape* the spec's rules require, not just the types it names. The spec
+  mandates "empty denominators return `null`, never `0`" and lists
+  `EvalDashboard.recent_runs`' element-type change — but `EvalTrendPoint`
+  (`eval-ci.ts:57`) and `EvalDashboard.current` (`:72`) still declare
+  `recall`/`precision`/`citation_accuracy` as **non-nullable** `z.number()`. A
+  set of only negative controls has no `must_find` targets, so it would either
+  fail response serialization or coerce to `0` — and `0` reads as total failure
+  in the exact case where the agent did everything right, which is worse than
+  crashing. Widen both before the first metric renders.
+  `server/src/vendor/shared/contracts/eval-ci.ts:57`
 
 - **2026-08-04** — `server/src/vendor/shared/contracts/*.ts` and
   `client/src/vendor/shared/contracts/*.ts` are two independent files with no
