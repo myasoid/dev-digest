@@ -19,7 +19,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "experiment:skills": "tsx scripts/skills-experiment.ts"
+    "experiment:skills": "tsx scripts/skills-experiment.ts",
+    "experiment:evals": "tsx scripts/evals-experiment.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EvalTarget, EvalUnlistedPolicy, EvalOwnerKind } from './eval-run.js';
 
 /**
  * Conformance, Onboarding, Eval, Memory, Conventions, Skills,
@@ -67,9 +68,6 @@ export const EvalRun = z.object({
 });
 export type EvalRun = z.infer<typeof EvalRun>;
 
-export const EvalOwnerKind = z.enum(['skill', 'agent']);
-export type EvalOwnerKind = z.infer<typeof EvalOwnerKind>;
-
 export const EvalCase = z.object({
   id: z.string(),
   owner_kind: EvalOwnerKind,
@@ -78,8 +76,34 @@ export const EvalCase = z.object({
   input_diff: z.string(),
   input_files: z.unknown(),
   input_meta: z.unknown(),
+  /**
+   * Narrowed from `z.unknown()` — now carries the typed `EvalTarget[]` array.
+   * Each target embeds the expectation kind; no case-level expectation_kind
+   * field exists (spec gap 2: one diff routinely carries both kinds).
+   */
   expected_output: z.unknown(),
   notes: z.string().nullish(),
+  /**
+   * Typed targets — the authoritative list. `expected_output` column persists
+   * the same data as jsonb for back-compat; `targets` is the parsed view.
+   */
+  targets: z.array(EvalTarget),
+  /**
+   * What to do with a grounded finding that matches no target.
+   * 'ignore' (default) — extra findings are NOT false positives.
+   * 'forbid' — every unmatched finding counts as FP (strict / negative control).
+   */
+  unlisted: EvalUnlistedPolicy,
+  /** PR this case was minted from. Null once the PR is deleted (set null on delete). */
+  source_pr_id: z.string().nullable(),
+  /**
+   * Bumps only when `input_diff`, `targets`, or `unlisted` change.
+   * Renames and notes edits do NOT bump it — those don't affect what the scorer
+   * measures, and the trend chart must not break its line for cosmetic edits.
+   */
+  revision: z.number().int(),
+  /** ISO timestamp — when this case was created. */
+  created_at: z.string(),
 });
 export type EvalCase = z.infer<typeof EvalCase>;
 

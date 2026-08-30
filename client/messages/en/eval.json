@@ -9,10 +9,12 @@
     "metricTrend": "Metric trend",
     "recentRuns": "Recent runs",
     "noRuns": "No runs yet. Create an eval case and run it.",
+    "regressionAlert": "Regression alert",
     "metrics": {
       "recall": "RECALL",
       "precision": "PRECISION",
-      "citationAccuracy": "CITATION ACCURACY"
+      "citationAccuracy": "CITATION ACCURACY",
+      "casesPassed": "CASES PASSED"
     },
     "legend": {
       "recall": "Recall",
@@ -21,14 +23,50 @@
     },
     "table": {
       "ranAt": "Ran at",
+      "version": "Version",
       "recall": "Recall",
       "precision": "Precision",
       "citation": "Citation",
       "pass": "Pass",
-      "cost": "Cost"
+      "cost": "Cost",
+      "select": "Select"
     },
     "pass": "pass",
-    "fail": "fail"
+    "fail": "fail",
+    "naValue": "n/a",
+    "allAgentsLink": "All agents",
+    "runAllAgents": "Run all agents",
+    "runAllQueued": "Queued eval runs for {count} agent(s). Rows update as each finishes.",
+    "runAllNone": "No agents have eval cases yet — nothing to run. Add a case from an agent's Evals tab, or use \"Turn into eval case\" on a finding.",
+    "runAllFailed": "Could not start runs: {error}",
+    "allAgentsRuns": "RECENT EVAL RUNS · ALL AGENTS",
+    "agentRow": {
+      "neverRun": "Never run",
+      "lastRun": "Last run {date}"
+    },
+    "compareButton": "Compare",
+    "compareSelected": "{n} selected",
+    "compare": {
+      "title": "Compare runs · v{old} → v{new}",
+      "close": "Close",
+      "deltaRecall": "RECALL",
+      "deltaPrecision": "PRECISION",
+      "deltaCitation": "CITATION",
+      "deltaCost": "COST",
+      "promptDiff": "SYSTEM PROMPT DIFF",
+      "promptOld": "v{version} (old)",
+      "promptNew": "v{version} (new)",
+      "comparabilitySkillsChanged": "Skills changed between runs — not a like-for-like prompt comparison",
+      "comparabilityCaseSetChanged": "Case set changed between runs — cannot present as a like-for-like comparison",
+      "loading": "Loading run details…",
+      "promptIdentical": "System prompts are identical."
+    },
+    "columns": {
+      "agent": "AGENT",
+      "trend": "TREND",
+      "cite": "CITE",
+      "cases": "CASES"
+    }
   },
   "caseEditor": {
     "newCase": "New eval case",
@@ -55,7 +93,10 @@
     "invalidJson": "invalid JSON",
     "lastRunPassed": "Last run passed",
     "lastRunFailed": "Last run failed",
-    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s"
+    "resultSummary": "recall {recall} · precision {precision} · citation {citation} · {duration}s",
+    "unlistedLabel": "Unlisted findings",
+    "unlistedIgnore": "Ignore (allow any unlisted findings)",
+    "unlistedForbid": "Strict (flag any unlisted findings as violations)"
   },
   "evalsTab": {
     "metricsTitle": "Eval metrics",
@@ -67,18 +108,43 @@
     "neverRun": "never run",
     "passed": "passed",
     "failed": "failed",
-    "recallSuffix": " · recall {recall}%",
     "run": "Run",
     "running": "Running…",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "runAll": "Run all evals",
+    "casesPassingCount": "{passing} / {total} passing",
+    "casesPassed": "CASES PASSED",
+    "naValue": "n/a",
+    "kindMustFind": "must find",
+    "kindMustNotFlag": "must not flag",
+    "unlistedForbid": "strict",
+    "runOnSave": "Run on save",
+    "findingSkeleton": "Finding skeleton",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "violationsLabel": "False positives (violations)",
+    "missedLabel": "Missed targets (false negatives)",
+    "noViolations": "No violations",
+    "noMissed": "All targets matched",
+    "denominatorNote": "Recall denominator = targets · Precision denominator = findings",
+    "runHistoryTitle": "Run history",
+    "noRunHistory": "No runs yet for this case.",
+    "metricRecall": "Recall",
+    "metricPrecision": "Precision",
+    "metricCitation": "Citation",
+    "metricKept": "Kept",
+    "metricDropped": "Dropped",
+    "violationMustNotFlag": "must_not_flag",
+    "violationUnlisted": "unlisted"
+  },
+  "citationNote": {
+    "label": "About citation accuracy",
+    "body": "Findings of types secret_leak, lethal_trifecta, phantom, and hook are exempt from the line-intersection check (FULL_FILE_KINDS). A high citation accuracy on an agent that mostly produces these findings means the grounding gate had little to check — not that citations are accurate."
   },
   "page": {
     "crumbSkillsLab": "Skills Lab",
-    "crumbEvalDashboard": "Eval Dashboard",
-    "crumbAgents": "Agents",
-    "crumbEvals": "Evals",
-    "crumbNewCase": "New case",
-    "crumbEvalCase": "Eval case"
+    "crumbEvalDashboard": "Eval Dashboard"
   }
 }

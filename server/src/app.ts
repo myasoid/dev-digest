@@ -17,6 +17,7 @@ import { Container, type ContainerOverrides } from './platform/container.js';
 import { AppError } from './platform/errors.js';
 import { modules } from './modules/index.js';
 import { ReviewService } from './modules/reviews/service.js';
+import { EvalService } from './modules/evals/service.js';
 
 // Attach the DI container to every request/instance.
 declare module 'fastify' {
@@ -90,6 +91,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     if (reaped > 0) app.log.info({ reaped }, 'reaped stale running agent_runs on boot');
   } catch (err) {
     app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
+  }
+
+  // Reap eval_suite_runs left 'running' by a previous (now-dead) process.
+  // Same placement and non-fatal catch as the review reaper above (criterion 17).
+  try {
+    const reaped = await new EvalService(container).reapStaleSuiteRuns();
+    if (reaped > 0) app.log.info({ reaped }, 'reaped stale running eval_suite_runs on boot');
+  } catch (err) {
+    app.log.warn({ err: (err as Error).message }, 'eval stale-run reaping failed (non-fatal)');
   }
 
   // Security headers (X-Content-Type-Options, X-Frame-Options, …). The API

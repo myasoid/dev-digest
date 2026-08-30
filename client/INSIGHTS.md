@@ -132,6 +132,31 @@ not show.
 
 ## Codebase Patterns
 
+- **2026-08-29, superseded the same day — do NOT build the stitch this entry
+  originally prescribed.** `EvalTrendPoint` now **does** carry
+  `case_set_revision` (`eval-ci.ts`), so `MetricTrend` segments the line by
+  reading the field off each point. The original advice — build a
+  `Map<ran_at, case_set_revision>` from `EvalDashboard.recent_runs` and attach
+  it to each trend point — was implemented, reviewed, and then deleted.
+  **Why it was wrong is the durable part.** Both arrays are built from one
+  `suiteRuns` array in `EvalService.getDashboard`, so the `ran_at` strings were
+  the same string off the same row object and the join always hit. That made
+  criterion 11 ("break the trend line where the case set changed") rest on an
+  undocumented invariant — object identity between two derived arrays — with no
+  test and no type holding it. Any later change that filters, paginates or
+  re-queries one array independently breaks the segmentation **silently**: the
+  line draws straight through a case-set change and looks entirely normal.
+  The fix was one line at the source (`service.ts` already had the row in hand
+  while mapping each point) and net *less* code, because it deleted an
+  intersection type, a `Map` build and a `useMemo` on the client.
+  **General rule:** when two arrays derive from one source and a consumer needs
+  to re-associate them, carry the field on the element at the source — never
+  re-join them downstream by a value field. A value-join encodes an invariant
+  the type system cannot see and the tests will not catch.
+  `server/src/vendor/shared/contracts/eval-ci.ts` (`EvalTrendPoint.case_set_revision`),
+  `server/src/modules/evals/service.ts` (`getDashboard`),
+  `client/src/app/eval/_components/MetricTrend.tsx` (`buildSegments`)
+
 - **2026-08-21** — a flex row of `[badge] [name flex:1 minWidth:0] [path
   maxWidth:200] [count]` reads fine at full width and silently collapses the
   **name to `width: 0`** when the same component is dropped into a half-width
@@ -220,6 +245,14 @@ not show.
 
 ## Tool & Library Notes
 
+- **2026-08-29** — `vendor/ui/icons.tsx` does not export `GitCompare`. The icon
+  set contains `BarChart`, `Activity`, `TrendingUp`, and `TrendingDown` as
+  alternatives for a "compare" affordance. Reaching for a Lucide icon name not
+  in `vendor/ui/icons.tsx` produces a TypeScript error (the `IconName` type is
+  derived from `keyof typeof Icon`, not from Lucide's full set) — check the
+  exported set before naming an icon in any `Button` or `IconBtn` prop. The full
+  list is at `client/src/vendor/ui/icons.tsx:86`.
+
 - **2026-08-26** — ESLint rules that catch real bugs
   (`jsx-a11y/no-noninteractive-element-interactions`,
   `@typescript-eslint/no-non-null-assertion`, `no-unused-vars`) only run as
@@ -266,6 +299,38 @@ not show.
   is on-screen and unclipped.
 
 ## Recurring Errors & Fixes
+
+- **2026-08-29** — `@testing-library/user-event` is NOT installed in this
+  project. Importing it (`import userEvent from "@testing-library/user-event"`)
+  produces a hard Vite resolve error that skips all tests in the file — no
+  fallback, no warning, just `FAIL 0 tests`. Existing tests use `fireEvent`
+  from `@testing-library/react` only. Use `fireEvent.click` / `fireEvent.change`
+  for interaction assertions; `userEvent.setup()` patterns from RTL docs will not
+  work here without installing the package first.
+  `client/src/app/agents/[id]/_components/AgentEditor/AgentEditor.test.tsx`
+
+- **2026-08-29, corrected the same day — mocking is the symptom fix; read the
+  breakage as a placement signal instead.** Adding a React Query hook to a
+  component breaks every test that renders it **transitively**, including tests
+  with no interest in the new behaviour. The failure is `No QueryClient set`,
+  thrown at hook call time, and it surfaces in the *other* test file, not the
+  one you edited. The first fix here was `vi.mock(".../lib/hooks/evals")` in
+  `FindingsPanel.test.tsx` — which worked and was wrong.
+  `FindingCard` is a leaf card whose sibling mutations already route through an
+  `onAction` callback owned by `FindingsPanel` (where `useFindingAction` lives).
+  Putting `useCreateEvalCaseFromFinding` in the leaf instead forced `agentId`
+  three levels down (`ReviewRunAccordion` → `FindingsPanel` → `FindingCard`) to
+  reach a hook that could have sat where `agentId` already was, and instantiated
+  the hook even when the button was hidden. Moving the mutation up to
+  `FindingsPanel` and passing `onCreateEvalCase`/`isCreatingEvalCase` as props
+  removed the mock, the prop threading and the always-on hook together.
+  **The rule:** a transitive `No QueryClient set` means a component gained server
+  state that its neighbours reach through a parent. Check where the sibling
+  mutations live before adding the mock — if the leaf needed new props threaded
+  in to feed the hook, the hook belongs where those props came from.
+  Note the mock is still correct in `FindingsPanel.test.tsx`, which now
+  legitimately owns the hook; it was removed from `FindingCard.test.tsx`.
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/FindingsPanel/FindingsPanel.tsx`
 
 - **2026-08-14** — `getByDisplayValue(multilineString)` silently fails to find
   a `<textarea>` whose value contains `\n\n`, even when the DOM clearly shows

@@ -149,6 +149,56 @@ input but left responses unchecked, so contract drift surfaced in the browser.
 
 ## What Doesn't Work
 
+- **2026-08-29, generalised 2026-08-30 — the rule is bigger than greps: verify
+  the PATH A USER TAKES, not the components on it.** Four defects shipped in one
+  feature behind fully green tooling, each caught only by exercising the thing
+  end to end. Ranked by how convincing the false green was:
+  (1) **A contract cycle killed the server at boot.** `eval-run.ts` and
+  `knowledge.ts` imported each other; Zod schemas are runtime *values*, so
+  `tsc --noEmit` passed, and all 517 tests passed, while `pnpm dev` died with
+  `ReferenceError: Cannot access 'EvalOwnerKind' before initialization`. Types
+  erase; cycles do not. **Booting the process is the only check that sees this**
+  — add `cd server && timeout 30 pnpm exec tsx src/server.ts` to the verification
+  list for any change that adds or moves a contract file.
+  (2) **A button that called nothing.** `AllAgentsIndex.tsx`'s "Run all agents"
+  handler kept a `!data?.agents.length` early return from an earlier placeholder
+  implementation, so with no eval cases it returned before `mutate()`. I verified
+  the endpoint with `curl` (202) and the wiring with `rg` (hook imported, route
+  registered) — both green, both meaningless, because neither exercised the
+  click. One `preview_click` + `preview_network` found it in seconds.
+  (3) A grep as an acceptance criterion — see below.
+  (4) `?? 0` null-coercion, invisible to any grep — `server/INSIGHTS.md`.
+  **The shape:** each check confirmed a *component* (a file's text, a route's
+  response, a type's shape) while the *path* stayed broken. Green typecheck and
+  green tests do not establish that the process starts or that a control does
+  anything. For user-facing work drive the UI (`preview_*`); for module-graph
+  changes boot the app; reserve greps for scanning known literals.
+
+  **The original claim, still true and the narrowest case of the above — a grep
+  in a plan's Verification block cannot carry an acceptance criterion.** It finds
+  textual violations; the criteria worth writing down are semantic, and the gap
+  between the two is where the bug lives. Two instances in one feature, both of
+  which passed a green grep:
+  (1) The Eval Pipeline plan made `rg 'skills\.body'` the proof of criterion 10
+  ("skill bodies come from `skill_versions`, never the live row"). The violation
+  shipped as `versionRow?.body ?? link.skill.body` — property access on a join
+  result, so the literal string `skills.body` never appears. It would have
+  recorded `{skill_id, version: N}` on the run while executing a *different*
+  body, silently mislabelling every A/B built on it. Caught by reading
+  `service.ts`, not by the grep the plan trusted.
+  (2) No grep formulation catches the `?? 0` null-coercion class at all (see
+  `server/INSIGHTS.md`, *What Doesn't Work*, same date) — `?? 0` is far too
+  common to flag wholesale, and whether an instance is a bug depends on what the
+  `null` **meant** at that site. Five instances, four packages-worth of surface,
+  every one found by reading.
+  So: a grep is a cheap scan for a known-literal mistake, and fine as hygiene.
+  When a criterion is load-bearing, the plan must name a **test or a code read**
+  as its evidence. A plan that lists a grep under "Grep checks that *are*
+  acceptance criteria" is claiming a guarantee the tool cannot give, and a green
+  result then reads as proof.
+  `specs/2026-08-29-eval-pipeline-plan.md` (§Verification),
+  `server/src/modules/evals/service.ts` (`startSuiteRun`)
+
 - **2026-08-29** — `citation_accuracy` (the share of findings that survive the
   grounding gate) **cannot be recomputed from the database.** `groundFindings`
   runs *inside* `reviewPullRequest`, only survivors are ever written to
@@ -256,6 +306,19 @@ input but left responses unchecked, so contract drift surfaced in the browser.
   in the exact case where the agent did everything right, which is worse than
   crashing. Widen both before the first metric renders.
   `server/src/vendor/shared/contracts/eval-ci.ts:57`
+  **Second half of the "read the i18n file first" rule — the design artifacts
+  are not one artifact.** Here there were three and no two were the same
+  iteration: a standalone HTML mockup (a gzip+base64 bundle — parse the JSON
+  object on its last line and gunzip each entry's `data` to recover the JSX), a
+  set of screenshots, and `client/messages/en/eval.json`. The mockup's dashboard
+  was *skill*-scoped with no compare view; the screenshots were newest and
+  showed the most; the i18n had keys for neither compare nor an all-agents
+  index, yet already carried `evalsTab.neverRun`, `caseEditor.validJson` and
+  `caseEditor.preview` — surfaces the written spec never mentions. So: **check
+  the artifacts agree with each other**, and when they don't, take scope from
+  the newest and wording from the i18n, which is the copy checked into the repo
+  and the one the code will actually call. Diffing the three cost minutes and
+  moved four screens' worth of surface from "missed" to "planned".
 
 - **2026-08-04** — `server/src/vendor/shared/contracts/*.ts` and
   `client/src/vendor/shared/contracts/*.ts` are two independent files with no
@@ -377,6 +440,24 @@ input but left responses unchecked, so contract drift surfaced in the browser.
   fetch the practitioner sources by hand.
 
 ## Recurring Errors & Fixes
+
+- **2026-08-30** — `listen EADDRINUSE: address already in use :::3000` from
+  `./scripts/dev.sh` almost always means the **previous** run's servers are
+  still alive, not that you started two. The cause was `dev.sh`'s own cleanup:
+  it killed `$SERVER_PID`, which was the `(cd server && pnpm dev) &` **subshell**
+  — but `pnpm` execs `tsx`/`node` in a *grandchild*, so killing the wrapper
+  orphaned the Node process, which kept `:3001` bound and was reparented to
+  `systemd`. Nothing in `ps` then links it to the shell you Ctrl-C'd, so it
+  reads as a mystery port conflict. Fixed by starting the API as its own
+  process-group leader (`setsid bash -c 'cd server && pnpm dev'`, which makes
+  `$!` == PGID) and signalling the whole group with `kill -- "-$SERVER_PID"`,
+  escalating to `SIGKILL` after 5s — a non-interactive shell **defers SIGTERM
+  while waiting on a foreground child**, so the `pnpm` wrapper can outlive the
+  TERM that already killed the port-holder beneath it. A preflight now runs
+  before the docker/migrate work and names the holding PID rather than letting
+  `pnpm` surface a bare EADDRINUSE from inside a backgrounded subshell. To find
+  a stray by hand: `ss -ltnpH "sport = :3001"`, then `kill <pid>`.
+  `scripts/dev.sh:40`, `scripts/dev.sh:119`
 
 - **2026-08-29** — `cd evals && pnpm eval:workflow` failing with `<path> not
   read` for `server/docs/api-contracts.md`, `reviewer-core/docs/pipeline.md`,

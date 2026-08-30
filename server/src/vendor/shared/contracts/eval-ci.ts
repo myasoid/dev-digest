@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { Verdict, Finding } from './findings.js';
-import { EvalRun, EvalOwnerKind, Conformance, Provider, CiFailOn } from './knowledge.js';
+import { EvalRun, Conformance, Provider, CiFailOn } from './knowledge.js';
+import {
+  EvalTarget,
+  EvalUnlistedPolicy,
+  EvalViolation,
+  EvalSuiteRun,
+  EvalOwnerKind,
+} from './eval-run.js';
 
 /**
  * A4 — Eval / CI / Compose / Conformance API contracts (L06).
@@ -24,7 +31,10 @@ export const EvalCaseInput = z.object({
   input_diff: z.string().default(''),
   input_files: z.unknown().nullish(),
   input_meta: z.unknown().nullish(),
-  expected_output: z.unknown(),
+  /** Typed targets replace the old `expected_output: z.unknown()`. */
+  targets: z.array(EvalTarget).default([]),
+  /** Default 'ignore' — extra findings are not FP unless the case opts into strict mode. */
+  unlisted: EvalUnlistedPolicy.default('ignore'),
   notes: z.string().nullish(),
 });
 export type EvalCaseInput = z.infer<typeof EvalCaseInput>;
@@ -34,6 +44,8 @@ export const EvalRunRecord = z.object({
   id: z.string(),
   case_id: z.string(),
   case_name: z.string().nullish(),
+  /** The suite run this case row belongs to. */
+  suite_run_id: z.string(),
   ran_at: z.string(),
   actual_output: z.unknown(),
   pass: z.boolean().nullable(),
@@ -42,10 +54,40 @@ export const EvalRunRecord = z.object({
   citation_accuracy: z.number().nullable(),
   duration_ms: z.number().int().nullable(),
   cost_usd: z.number().nullable(),
+  /** Number of findings that survived the grounding gate (read from ReviewOutcome). */
+  findings_kept: z.number().int(),
+  /** Number of findings dropped by the grounding gate (read from ReviewOutcome). */
+  findings_dropped: z.number().int(),
+  /** Which revision of the case this row measured. */
+  case_revision: z.number().int(),
+  /** False-positive violations: must_not_flag hits and unlisted-forbid hits. */
+  violations: z.array(EvalViolation),
+  /** must_find targets that no finding matched (false negatives). */
+  missed: z.array(EvalTarget),
 });
 export type EvalRunRecord = z.infer<typeof EvalRunRecord>;
 
-/** Result of running a single case: the metrics (EvalRun) + the persisted row id. */
+/**
+ * Detail view of a suite run: the set-level `EvalSuiteRun` plus the per-case
+ * `EvalRunRecord[]`. Returned by `GET /eval-runs/:id` so Phase 3 can render
+ * the run-detail table (violations / missed / kept / dropped per case).
+ *
+ * `EvalSuiteRun` lives in `eval-run.ts`; `EvalRunRecord` lives here.
+ * Defining the detail shape here avoids a circular import between the two files.
+ */
+export const EvalSuiteRunDetail = EvalSuiteRun.extend({
+  cases: z.array(EvalRunRecord),
+});
+export type EvalSuiteRunDetail = z.infer<typeof EvalSuiteRunDetail>;
+
+/**
+ * @deprecated Use `EvalSuiteRun` (for the set-level aggregate) and
+ * `EvalRunRecord` (for per-case rows) instead. This shape conflates a
+ * set-shaped metrics object (`EvalRun` has `traces_passed`/`traces_total`/
+ * `per_trace[]`) with a single `case_id`, which is the gap-1 mismatch this
+ * phase resolves. Removal trigger: when Phase 4 ships and no caller in
+ * `server/` or `client/` references this type — re-grep at that point.
+ */
 export const EvalRunResult = z.object({
   run_id: z.string(),
   case_id: z.string(),
@@ -56,11 +98,24 @@ export type EvalRunResult = z.infer<typeof EvalRunResult>;
 /** One point on the dashboard trend (per run, chronological). */
 export const EvalTrendPoint = z.object({
   ran_at: z.string(),
-  recall: z.number(),
-  precision: z.number(),
-  citation_accuracy: z.number(),
+  /**
+   * Nullable — empty denominators MUST return null, never 0. A set of only
+   * negative controls has no must_find targets; scoring it recall:0 would
+   * render as a catastrophe in the case where the agent did everything right.
+   */
+  recall: z.number().nullable(),
+  precision: z.number().nullable(),
+  citation_accuracy: z.number().nullable(),
+  /** Pass-rate across cases — kept non-nullable (denominator is always cases_total). */
   pass_rate: z.number(),
   cost_usd: z.number().nullable(),
+  /**
+   * The case-set fingerprint at this point. The trend chart breaks its line
+   * wherever this changes, so comparing two adjacent points is only meaningful
+   * when they share the same revision (criterion 11). Carried here so the
+   * client never has to join trend[] against recent_runs[] by ran_at.
+   */
+  case_set_revision: z.string(),
 });
 export type EvalTrendPoint = z.infer<typeof EvalTrendPoint>;
 
@@ -70,20 +125,33 @@ export const EvalDashboard = z.object({
   owner_id: z.string().nullable(),
   cases_total: z.number().int(),
   current: z.object({
-    recall: z.number(),
-    precision: z.number(),
-    citation_accuracy: z.number(),
-    traces_passed: z.number().int(),
-    traces_total: z.number().int(),
+    /**
+     * Nullable — empty denominators MUST return null, never 0.
+     * A negative-control-only set has no must_find targets; coercing to 0
+     * would render as a catastrophe precisely when the agent did everything
+     * right (spec gap 2 / Recommendation 2).
+     */
+    recall: z.number().nullable(),
+    precision: z.number().nullable(),
+    citation_accuracy: z.number().nullable(),
+    /** Renamed from `traces_passed`/`traces_total` — the unit is cases, not traces. */
+    cases_passed: z.number().int(),
+    cases_total: z.number().int(),
     cost_usd: z.number().nullable(),
   }),
+  /**
+   * Signed deltas from the previous succeeded run. Null when either operand
+   * is null (empty denominator) — a null-vs-0.8 pair must not fabricate a
+   * confident ▼80pt regression that never happened (criterion 6).
+   */
   delta: z.object({
-    recall: z.number(),
-    precision: z.number(),
-    citation_accuracy: z.number(),
+    recall: z.number().nullable(),
+    precision: z.number().nullable(),
+    citation_accuracy: z.number().nullable(),
   }),
   trend: z.array(EvalTrendPoint),
-  recent_runs: z.array(EvalRunRecord),
+  /** Changed element type: EvalRunRecord (per case) → EvalSuiteRun (per set, gap 1 fix). */
+  recent_runs: z.array(EvalSuiteRun),
   alert: z.string().nullable(),
 });
 export type EvalDashboard = z.infer<typeof EvalDashboard>;

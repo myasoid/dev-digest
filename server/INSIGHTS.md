@@ -87,11 +87,41 @@ match — verify-then-replace gives a stronger guarantee for less code.
 
 ## What Works
 
-_None yet._
+- **2026-08-29** — Driving an experiment through `EvalService` (rather than
+  calling `reviewPullRequest` directly) is the correct approach whenever the
+  thing under test is the whole eval machinery: `EvalRunInputs` gets recorded,
+  `scoring.ts` runs on the real path, and a confound in `skill_versions` or
+  `case_set_revision` is visible in the output. The cost is a live Postgres
+  dependency. Synchronising with the fire-and-forget run requires
+  `runBus.onDone(runId, callback)` — the bus emits `'done'` after
+  `this.container.runBus.complete(suiteRunId)` fires at the end of
+  `executeRunInBackground`, and `onDone` fires immediately via `queueMicrotask`
+  when called on an already-completed run (safe for polling late). Do NOT poll
+  `getSuiteRun` in a sleep loop — `complete()` fires before the DB write
+  commits, so a tight polling loop will read `status = 'running'` after `onDone`
+  has already fired and exit prematurely. The settled pattern: subscribe
+  `onDone`, then call `getSuiteRun` inside the callback.
+  `server/src/platform/sse.ts` (`RunBus.onDone`),
+  `server/scripts/evals-experiment.ts` (`waitForSuiteRun`)
 
 ## What Doesn't Work
 
-_None yet._
+- **2026-08-29** — `?? 0` on a nullable metric is the single most recurring
+  defect across the eval pipeline (five instances across Phases 1–5). The
+  pattern: a helper that correctly returns `null` for an empty denominator has
+  its null coerced back to `0` at the aggregation or reporting call site, turning
+  "no data" into a confident `0%` — the exact failure mode the scorer was
+  designed to prevent. In a spread computation the damage is worse: coercing
+  `maxOf(values) ?? 0` and `minOf(values) ?? 0` when both return `null` gives
+  `spread = 0 - 0 = 0`, which silently disables any guard of the form
+  `delta < spread` (it is always false against 0). The correct shape at every
+  use site: propagate `null` through arithmetic with explicit `null` checks,
+  never `?? 0`. Only suppress with `?? 0` when the semantic really is "null cost
+  is zero spend" (e.g. summing `cost_usd` for a total). Two triggers to watch:
+  (1) a nullable metric used inside a subtraction or division without a prior
+  null guard; (2) a spread or variance computation that coerces its inputs.
+  `server/scripts/evals-experiment.ts` (`reportPrediction`, fixed 2026-08-29),
+  `server/src/modules/evals/service.ts` (two instances fixed in Phase 4)
 
 ## Codebase Patterns
 
@@ -349,6 +379,63 @@ _None yet._
   `server/test/skills-import.test.ts` ("refuses a zip bomb WITHOUT inflating it")
 
 ## Recurring Errors & Fixes
+
+- **2026-08-30** — Overriding `llm: { openai: new MockLLMProvider(...) }` in a
+  review integration test does **not** make the run hermetic: it still hits the
+  network. `IntentClassifier.classify` resolves its own model via
+  `resolveFeatureModel(container, workspaceId, 'review_intent')`
+  (`src/modules/reviews/intent-classifier.ts:133`), and `review_intent` defaults to
+  **`openrouter` / `deepseek/deepseek-v4-flash`**
+  (`src/vendor/shared/contracts/platform.ts:52`) — a provider the override never
+  replaced. Consequence: `test/skills-prompt.it.test.ts` fails deterministically
+  (2/2 at HEAD) because real LLM prose in the `## PR intent` block differs between
+  the two runs it compares, and `test/reviews.it.test.ts` is flaky at ~20-40%
+  because real network latency (3.5s-10s observed) overruns the poll timeout.
+  Both are **pre-existing**, not caused by the eval pipeline. Two compounding
+  traps: (1) a per-feature model resolved *inside* a service is invisible at the
+  `buildApp({ overrides })` call site — override **every** provider key
+  (`openai`, `anthropic`, `openrouter`), not just the agent's; (2) `waitForPrRuns`
+  **returns silently** on timeout instead of throwing
+  (`test/helpers/runs.ts:31`, `if (Date.now() - start > timeoutMs) return runs;`),
+  so a timeout surfaces far away as `Cannot read properties of undefined` on
+  `reviews[0]` rather than as "the run never finished".
+
+- **2026-08-30** — A `*.it.test.ts` fixture that **inserts its own workspace row**
+  makes every workspace-scoped route return `404`, and the 404 reads as a routing
+  or module-registration bug rather than a tenancy mismatch.
+  `LocalNoAuthProvider.currentWorkspace()` resolves the workspace by *name*
+  (`DEFAULT_WORKSPACE_NAME`, from `db/seed.ts`) and caches it, so `getContext()`
+  always returns the **seeded** workspace id no matter what the fixture inserted;
+  a service that scopes its lookup by `workspaceId` then finds nothing. Concrete
+  case: `evals.it.test.ts`'s `seedFixture` inserted a workspace named
+  `'Test workspace'` and hung the repo/PR/agent/review/finding off it — 7 of its 8
+  tests failed `expected 404 to be 201` on `POST /findings/:id/eval-case` while
+  the route was correctly registered and the service logic was correct. The tell
+  that it is *not* a routing bug: one test in the same file passed, and it was the
+  only one calling the service directly instead of via `app.inject`. Working
+  pattern — **select** the already-seeded workspace and hang fixture rows off it:
+  `const [ws] = await db.select().from(t.workspaces); workspaceId = ws!.id;`
+  (`server/test/reviews.it.test.ts:106`). Applies to any route using
+  `getContext`, not just evals. `server/src/adapters/auth/local.ts:28`
+
+- **2026-08-29** — In the eval scorer, *"one finding spanning three targets counts
+  **once**"* and *"recall counts matched targets"* are **two different counters**,
+  and resolving the match with `Array.find()` satisfies the first while silently
+  under-counting the second. `find()` returns the first `must_find` target a
+  finding hits, which is correct for the TP count (findings are the unit) but
+  leaves the other two targets unmarked, so `recall_num` reports 1 where the
+  truth is 3 — recall comes out low, with no error and no failing type. Use
+  `filter()` and add **every** hit to the matched-target set, then count TP from
+  the per-finding resolution map, not from the target side:
+  `const mfHits = mustFindTargets.filter(t => findingMatchesTarget(f, t))`
+  (`server/src/modules/evals/scoring.ts:147`). The spec sentence is what induces
+  the bug — it is about the TP count and says nothing about recall's numerator.
+  The general shape: whenever a scorer's two metrics have **different
+  denominators** (here precision's is findings, recall's is targets), a single
+  lookup cannot serve both, and the wrong one fails silently because both
+  produce plausible numbers. Test it with one finding deliberately spanning
+  several targets and assert the numerator, not just pass/fail
+  (`scoring.test.ts`, "one finding spanning three targets").
 
 - **2026-08-21** — `export type { X } from 'module'` (a re-export) does NOT
   bind `X` into the *local* module's scope for further use in that same

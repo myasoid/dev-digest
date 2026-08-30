@@ -9,8 +9,25 @@ import type { Agent } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
 import { SkillsTab } from "./_components/SkillsTab";
 import { ContextTab } from "./_components/ContextTab";
+import { EvalsTab } from "./_components/EvalsTab";
 import { TABS } from "./constants";
 import { s } from "./styles";
+
+/** Lookup map replacing the nested ternary — at six tabs (Config · Skills ·
+    Context · Evals · Stats · CI per the screenshot end-state) a fourth nesting
+    level is the wrong shape. */
+function TabBody({ agent, tab }: { agent: Agent; tab: string }) {
+  switch (tab) {
+    case "skills":
+      return <SkillsTab agent={agent} />;
+    case "context":
+      return <ContextTab agent={agent} />;
+    case "evals":
+      return <EvalsTab agent={agent} />;
+    default:
+      return <ConfigTab agent={agent} />;
+  }
+}
 
 export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; onTab: (t: string) => void }) {
   const t = useTranslations("agents");
@@ -21,13 +38,7 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
         <Tabs tabs={tabs} value={tab} onChange={onTab} pad="0 24px" />
       </div>
       <div style={s.body}>
-        {tab === "skills" ? (
-          <SkillsTab agent={agent} />
-        ) : tab === "context" ? (
-          <ContextTab agent={agent} />
-        ) : (
-          <ConfigTab agent={agent} />
-        )}
+        <TabBody agent={agent} tab={tab} />
       </div>
     </div>
   );
