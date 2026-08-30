@@ -54,7 +54,11 @@ export function AgentIndexRowItem({ row }: { row: EvalAgentIndexRow }) {
 
       {/* Sparkline (recall series) */}
       <div>
-        {sparkData.length > 0 ? (
+        {/* >= 2, not > 0: Sparkline maps x as `i / (data.length - 1)`
+            (vendor/ui/charts/Sparkline.tsx:19), so a single point divides by
+            zero and emits `cx="NaN"`. An agent with exactly one eval run — the
+            normal state right after the first run — hits this. */}
+        {sparkData.length >= 2 ? (
           <Sparkline data={sparkData} color="var(--accent)" w={60} h={20} />
         ) : (
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>—</span>

@@ -165,6 +165,29 @@ export class AgentsRepository {
     return row;
   }
 
+  /**
+   * Ensure `agent_versions` holds a snapshot for the agent's CURRENT version.
+   *
+   * Exists because the eval pipeline resolves a run's frozen config from
+   * `agent_versions`, so an agent with no snapshot for its version cannot be
+   * evaluated at all (`missing_version`). `insert()` and `update()` both record
+   * one, but any path that writes `agents` directly — notably `db/seed.ts`,
+   * which inserts the built-in agents with raw Drizzle — bypasses them and
+   * leaves the agent unevaluatable.
+   *
+   * Idempotent: `snapshotVersion` ends in `onConflictDoNothing()`, so calling
+   * this for an agent that already has its snapshot is a no-op. Safe to run
+   * over every agent on every seed.
+   */
+  async ensureCurrentVersionSnapshot(agentId: string): Promise<boolean> {
+    const [row] = await this.db.select().from(t.agents).where(eq(t.agents.id, agentId));
+    if (!row) return false;
+    const existing = await this.getVersion(agentId, row.version);
+    if (existing) return false;
+    await this.snapshotVersion(row, row.version);
+    return true;
+  }
+
   private async snapshotVersion(row: AgentRow, version: number): Promise<void> {
     const skills = await this.skillIdsForAgent(row.id);
     await this.db

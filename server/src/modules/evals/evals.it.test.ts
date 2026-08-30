@@ -290,11 +290,13 @@ describe('Eval Pipeline — DB-backed integration tests', () => {
     // Confirm the target is must_find (derived from accepted_at).
     expect(evalCase.targets[0].kind).toBe('must_find');
 
-    // Start a full suite run.
+    // Start a full suite run. No payload — this mirrors the real client, which
+    // omits the body entirely for an unfiltered run and sends no content-type
+    // with it. Sending `payload: {}` here would exercise a shape the client
+    // never produces and would miss a 422 on the unfiltered path.
     const runRes = await app.inject({
       method: 'POST',
       url: `/agents/${agentId}/eval-runs`,
-      payload: {},
     });
     expect(runRes.statusCode).toBe(202);
     const { suite_run_id } = JSON.parse(runRes.body);
@@ -534,11 +536,11 @@ describe('Eval Pipeline — DB-backed integration tests', () => {
     expect(caseRes.statusCode).toBe(201);
     const evalCase = JSON.parse(caseRes.body);
 
-    // Start a suite run (record agent_version at run start).
+    // Start a suite run (record agent_version at run start). Body omitted — see
+    // AC1 above for why this must not send `payload: {}`.
     const runRes = await app.inject({
       method: 'POST',
       url: `/agents/${agentId}/eval-runs`,
-      payload: {},
     });
     expect(runRes.statusCode).toBe(202);
     const { suite_run_id } = JSON.parse(runRes.body);

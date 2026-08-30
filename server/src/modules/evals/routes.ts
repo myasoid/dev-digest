@@ -55,11 +55,29 @@ const PatchCaseBody = z.object({
   input_diff: z.string().optional(),
 });
 
-/** Body for starting a suite run (optional case filter). */
-const StartSuiteRunBody = z.object({
-  /** Optional subset of case ids to run. Omitted = run all cases for the agent. */
-  case_ids: z.array(z.string().uuid()).optional(),
-});
+/**
+ * Body for starting a suite run (optional case filter).
+ *
+ * The `preprocess` is load-bearing, not cosmetic. The client omits the body
+ * entirely for an unfiltered "run all evals" (`api.post(path, undefined)`), and
+ * `apiFetch` drops the `content-type` header when there is no body, so Fastify
+ * never runs its JSON parser. A bare `z.object({...})` then rejects the request
+ * and the route 422s on exactly the case the comment below calls legal.
+ *
+ * `.default({})` does NOT fix this: Fastify hands the *validator* `null` for an
+ * absent body (`"Expected object, received null"`) even though `req.body` reads
+ * as `undefined` inside the handler, and zod's `.default()` only triggers on
+ * `undefined`. Verified against fastify-type-provider-zod: `.default({})` still
+ * 422s; `.nullish()`/`.nullable()` pass but deliver `null` to the handler.
+ * Coercing to `{}` up front is what keeps `req.body.case_ids` valid below.
+ */
+const StartSuiteRunBody = z.preprocess(
+  (v) => v ?? {},
+  z.object({
+    /** Optional subset of case ids to run. Omitted = run all cases for the agent. */
+    case_ids: z.array(z.string().uuid()).optional(),
+  }),
+);
 
 export default async function evalsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();

@@ -321,6 +321,25 @@ match — verify-then-replace gives a stronger guarantee for less code.
 
 ## Tool & Library Notes
 
+- **2026-08-30** — A route whose body is *semantically* optional must use
+  `z.preprocess((v) => v ?? {}, z.object({...}))`. Neither a bare `z.object({...})`
+  with all-optional fields nor `.default({})` works, and the reason is not
+  guessable: **Fastify hands the validator `null`** for an absent body — the error
+  is literally `"body/ Expected object, received null"` — even though `req.body`
+  reads as `undefined` inside the handler. Zod's `.default()` only fires on
+  `undefined`, so it never triggers. Probed against the repo's own
+  `fastify-type-provider-zod`: bare object → 422, `.default({})` → **still 422**,
+  `.nullish().default({})` and `.nullable()` → pass but deliver `null` to the
+  handler (so every `req.body.x` needs `?.`), `preprocess` → passes *and* yields
+  `{}`, leaving `req.body.x` valid. This bites whenever the client omits the body:
+  `apiFetch` deliberately drops the `content-type` header when there is no body
+  (`client/src/lib/api.ts:30`), so Fastify never runs its JSON parser. Live case:
+  `POST /agents/:id/eval-runs` 422'd on every unfiltered "Run all evals" while the
+  filtered path worked. Regression test:
+  `server/test/routes-smoke.test.ts` ("accepts an omitted body") — it needs no
+  Postgres because validation runs before the handler.
+  `server/src/modules/evals/routes.ts:74`
+
 - **2026-08-26** — Under the `postgres-js` Drizzle driver, `db.execute(sql\`...\`)`
   returns the raw `postgres` `RowList` directly (array-like), NOT
   `{ rows: [...] }` — the shape some other node Postgres clients use for
