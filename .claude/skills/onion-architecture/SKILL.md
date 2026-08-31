@@ -1,6 +1,6 @@
 ---
 name: onion-architecture
-description: Guides backend module design around Onion/hexagonal layering — domain rules at the center, application services next, infrastructure (HTTP routes, Drizzle repositories, adapters) on the outside, dependencies pointing inward only. Covers server/ (Fastify modules — routes → service → repository, DI container, adapters/ as ports) and reviewer-core/ (pure domain core with one injected LLMProvider port). Trigger terms: "onion architecture", "hexagonal architecture", "layered architecture", "dependency rule", "ports and adapters", "where does this logic belong", "service layer", "repository pattern", new backend module scaffolding, reviewing server/src/modules/** or reviewer-core/src/**.
+description: "Guides backend module design around Onion/hexagonal layering — domain rules at the center, application services next, infrastructure (HTTP routes, Drizzle repositories, adapters) on the outside, dependencies pointing inward only. Covers server/ (Fastify modules — routes → service → repository, DI container, adapters/ as ports) and reviewer-core/ (pure domain core with one injected LLMProvider port). Trigger terms: \"onion architecture\", \"hexagonal architecture\", \"layered architecture\", \"dependency rule\", \"ports and adapters\", \"where does this logic belong\", \"service layer\", \"repository pattern\", new backend module scaffolding, reviewing server/src/modules/** or reviewer-core/src/**."
 ---
 
 # Onion Architecture

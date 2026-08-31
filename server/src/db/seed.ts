@@ -454,7 +454,42 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
 
   await seedSkills(db, workspaceId);
 
+  // Record the v1 config snapshot for every agent that lacks one.
+  //
+  // MUST run after seedSkills: a snapshot's `config_json.skills` is the agent's
+  // attached skill ids, and those links are created in there. Snapshotting
+  // earlier would freeze an empty skill list.
+  //
+  // The agents above are inserted with raw Drizzle rather than through
+  // `AgentsRepository.insert()`, so they never get the snapshot that
+  // `insert()`/`update()` would have written — and without it every eval run
+  // fails `missing_version`. This also backfills databases seeded before this
+  // fix. Idempotent, so it is a no-op on an already-correct database.
+  await backfillAgentVersions(db, workspaceId);
+
   return { workspaceId, userId };
+}
+
+/**
+ * Give every agent in the workspace a config snapshot for its current version.
+ *
+ * Delegates to `AgentsRepository` rather than inserting into `agent_versions`
+ * here: the `config_json` shape is what the eval executor replays, and a second
+ * copy of it in the seed would drift from the real one silently.
+ */
+async function backfillAgentVersions(db: Db, workspaceId: string): Promise<void> {
+  const { AgentsRepository } = await import('../modules/agents/repository.js');
+  const repo = new AgentsRepository(db);
+  const rows = await db
+    .select({ id: t.agents.id, name: t.agents.name })
+    .from(t.agents)
+    .where(eq(t.agents.workspaceId, workspaceId));
+
+  let added = 0;
+  for (const a of rows) {
+    if (await repo.ensureCurrentVersionSnapshot(a.id)) added++;
+  }
+  if (added > 0) console.log(`  agent_versions: backfilled ${added} missing v1 snapshot(s)`);
 }
 
 /**

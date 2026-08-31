@@ -38,6 +38,10 @@ npm run typecheck  # tsc --noEmit — this IS the build; the package emits no JS
 - Read `INSIGHTS.md` first for what was already tried here, and run the
   `engineering-insights` skill at the end of the task to add to it.
 - Read `README.md` for the pipeline diagram and the full public API.
-- Read `docs/` before changing prompt assembly or the grounding heuristics.
+- Read `docs/pipeline.md` before changing anything in the review pipeline
+  (prompt assembly, map-reduce chunking, structured output, or the grounding
+  gate).
+- Read `insights/gotchas.md` when you hit unexpected behavior here — known
+  pitfalls and the non-obvious reason each exists.
 - Read `../docs/agent-prompts/` when the task concerns a built-in agent's system
   prompt or model choice.

@@ -1,0 +1,176 @@
+{
+  "_comment": "Ground truth for the onion-architecture eval fixtures. Not shown to reviewers under test — used only by a grader to score their findings. See evals.json for the prompt sent to each reviewer, and README.md for the blind-fixture rule.",
+  "cases": [
+    {
+      "id": 1,
+      "name": "case-1-labels",
+      "fixture_dir": "fixtures/case-1-labels",
+      "expected_findings": [
+        {
+          "id": "case1-f1",
+          "file": "routes.ts",
+          "section": "GET /labels/:id/findings/summary handler",
+          "anti_pattern": "raw-drizzle-or-business-logic-in-routes",
+          "reference": "references/anti-patterns.md#1-business-logic-or-raw-drizzle-in-routests",
+          "description": "Raw Drizzle query against `findings` plus severity-aggregation business logic (`bySeverity` grouping) run directly inside the route handler instead of being delegated to service.ts."
+        },
+        {
+          "id": "case1-f2",
+          "file": "service.ts",
+          "section": "importFromGitHub",
+          "anti_pattern": "concrete-adapter-construction",
+          "reference": "SKILL.md#best-practices (One port, one adapter)",
+          "description": "Constructs `new GitHubHttpClient(token)` directly instead of calling the `github: GitHubClient` port already exposed on the container."
+        },
+        {
+          "id": "case1-f3",
+          "file": "contracts.ts",
+          "section": "LabelFindingSummary",
+          "anti_pattern": "forked-zod-contract",
+          "reference": "references/anti-patterns.md#4-forking-a-zod-contract-instead-of-extending-it",
+          "description": "Hand-duplicates Finding's `id`/`severity`/`title`/`filePath`/`line` fields instead of `Finding.extend({ labelName: z.string() })`."
+        }
+      ],
+      "known_false_positives": [
+        {
+          "id": "case1-fp1",
+          "file": "service.ts",
+          "section": "LabelService constructor",
+          "flagged_code": "this.repo = new LabelRepository(container.db)",
+          "why_not_a_violation": "Constructing a module's own repository via container.db is the established convention (see server/src/modules/repos/service.ts's `this.repo = new RepoRepository(container.db)`). container.<x>Repo getters exist for CROSS-module access, not same-module self-construction."
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "case-2-comments-scoring",
+      "fixture_dir": "fixtures/case-2-comments-scoring",
+      "expected_findings": [
+        {
+          "id": "case2-f1",
+          "file": "reviewer-core/scoring.ts",
+          "section": "scoreFindings",
+          "anti_pattern": "domain-code-reaching-for-concrete-adapter",
+          "reference": "references/anti-patterns.md#3-domainpure-code-reaching-for-a-concrete-adapter",
+          "description": "Imports and instantiates `OpenRouterProvider` directly inside a pure-looking domain file instead of accepting an injected `LLMProvider` parameter."
+        },
+        {
+          "id": "case2-f2",
+          "file": "server/comments/repository.ts",
+          "section": "CommentRepository.findComment",
+          "anti_pattern": "repository-facade-re-declares",
+          "reference": "references/anti-patterns.md#2-a-repository-facade-that-re-declares-instead-of-delegates",
+          "description": "Re-implements the same Drizzle query inline instead of delegating to `repository/comment.repo.ts`'s exported `findComment`."
+        },
+        {
+          "id": "case2-f3",
+          "file": "server/comments/service.ts",
+          "section": "CommentService.getWithAuthor",
+          "anti_pattern": "cross-module-repository-access",
+          "reference": "references/server-module-pattern.md#cross-module-access-goes-through-the-container",
+          "description": "Imports `AgentRepository` from `../agents/repository.js` and instantiates it directly instead of going through `container.agentsRepo`."
+        }
+      ],
+      "known_false_positives": [
+        {
+          "id": "case2-fp1",
+          "file": "server/comments/service.ts",
+          "section": "CommentService constructor",
+          "flagged_code": "this.comments = new CommentRepository(container.db)",
+          "why_not_a_violation": "Same-module repository self-construction via container.db is the established convention; container.commentsRepo exists for cross-module access, not for the comments module constructing its own repository."
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "case-3-annotations",
+      "fixture_dir": "fixtures/case-3-annotations",
+      "expected_findings": [
+        {
+          "id": "case3-f1",
+          "file": "routes.ts",
+          "section": "GET /annotations/recent handler",
+          "anti_pattern": "raw-drizzle-or-business-logic-in-routes",
+          "reference": "references/anti-patterns.md#1-business-logic-or-raw-drizzle-in-routests",
+          "description": "Raw Drizzle query against `annotations` plus dedup-to-most-recent-per-finding business logic run directly inside the route handler."
+        },
+        {
+          "id": "case3-f2",
+          "file": "service.ts",
+          "section": "suggestNote",
+          "anti_pattern": "concrete-adapter-construction",
+          "reference": "SKILL.md#best-practices (One port, one adapter)",
+          "description": "Constructs `new OpenRouterProvider(apiKey)` directly instead of via an injected LLMProvider port; container.ts has no `llm` slot to inject through in the first place."
+        },
+        {
+          "id": "case3-f3",
+          "file": "contracts.ts",
+          "section": "AnnotationSummary",
+          "anti_pattern": "forked-zod-contract",
+          "reference": "references/anti-patterns.md#4-forking-a-zod-contract-instead-of-extending-it",
+          "description": "Hand-copies Finding's `title`/`severity`/`filePath`/`line` fields under new names (`findingTitle`/`findingSeverity`/`findingFilePath`/`findingLine`) instead of `.pick()`/`.extend()` on `Finding`."
+        }
+      ],
+      "known_false_positives": []
+    },
+    {
+      "id": 4,
+      "name": "case-4-webhooks",
+      "fixture_dir": "fixtures/case-4-webhooks",
+      "expected_findings": [
+        {
+          "id": "case4-f1",
+          "file": "repository/subscription.repo.ts",
+          "section": "listSubscriptions",
+          "anti_pattern": "business-logic-hiding-in-repository",
+          "reference": "references/anti-patterns.md#5-businessderived-logic-hiding-inside-repositoryts",
+          "description": "Computes a derived `status` field ('suspended' vs 'active') by applying the SUSPEND_AFTER_FAILURES=5 business threshold to `consecutiveFailures` before returning rows, instead of returning the raw count and letting service.ts classify it. Harder to spot than #1-#4: the imports (Db + schema only) look completely clean; the violation is only visible in the method body.",
+          "difficulty": "hard"
+        },
+        {
+          "id": "case4-f2",
+          "file": "routes.ts",
+          "section": "GET /webhooks/:id/deliveries/summary handler",
+          "anti_pattern": "raw-drizzle-or-business-logic-in-routes",
+          "reference": "references/anti-patterns.md#1-business-logic-or-raw-drizzle-in-routests",
+          "description": "Raw Drizzle query against `webhookDeliveries` plus succeeded/failed tallying done directly inside the route handler instead of via service.ts.",
+          "difficulty": "easy"
+        },
+        {
+          "id": "case4-f3",
+          "file": "service.ts",
+          "section": "recordAttempt",
+          "anti_pattern": "concrete-adapter-construction",
+          "reference": "SKILL.md#best-practices (One port, one adapter)",
+          "description": "Constructs `new SlackNotifier(slackWebhookUrl)` directly instead of using the `notifications: NotificationClient` port already exposed on the container.",
+          "difficulty": "easy"
+        },
+        {
+          "id": "case4-f4",
+          "file": "contracts.ts",
+          "section": "WebhookSubscriptionSummary",
+          "anti_pattern": "forked-zod-contract",
+          "reference": "references/anti-patterns.md#4-forking-a-zod-contract-instead-of-extending-it",
+          "description": "Hand-duplicates `id`/`url`/`status`/`consecutiveFailures` from the base `WebhookSubscription` contract in shared.ts instead of `.pick()`.",
+          "difficulty": "easy"
+        }
+      ],
+      "known_false_positives": [
+        {
+          "id": "case4-fp1",
+          "file": "service.ts",
+          "section": "WebhookService constructor",
+          "flagged_code": "this.repo = new WebhookRepository(container.db)",
+          "why_not_a_violation": "Same-module repository self-construction via container.db — the established convention, not a violation (see anti-patterns.md §0)."
+        },
+        {
+          "id": "case4-fp2",
+          "file": "repository.ts",
+          "section": "WebhookRepository (facade over subscription.repo.ts + delivery.repo.ts)",
+          "flagged_code": "listSubscriptions(workspaceId) { return listSubscriptions(this.db, workspaceId); }",
+          "why_not_a_violation": "This facade delegates (thin pass-through to the .repo.ts functions) rather than re-declaring their logic — the correct shape per anti-patterns.md #2's \"Do\" example, not an instance of the violation."
+        }
+      ]
+    }
+  ]
+}

@@ -9,7 +9,10 @@
     "replyToAuthor": "Reply to author",
     "replyPlaceholder": "Reply to the author about this finding…",
     "sendReply": "Send reply",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "turnIntoEvalCase": "Turn into eval case",
+    "evalCaseDisabledReason": "Decide on this finding first (accept or dismiss) before creating an eval case.",
+    "evalCaseCreating": "Creating eval case…"
   },
   "trifecta": {
     "lethal": "LETHAL TRIFECTA — ALL 3 PRESENT",

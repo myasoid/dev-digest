@@ -109,6 +109,17 @@ input but left responses unchecked, so contract drift surfaced in the browser.
 
 ## What Works
 
+- **2026-08-29** — A "does not fabricate a violation" negative-control case (a
+  clean, no-violation fixture fed to the same prompt) is worth writing for
+  **any** skill/agent eval whose job is flagging severity-tiered findings, not
+  just `architecture-reviewer` where the pattern started (`BENIGN_PROMPT` in
+  `agents/architecture-reviewer/architecture-reviewer.cases.ts`). Added the
+  same shape to `evals/skills/dependency-checker/dependency-checker.cases.ts`
+  ("does not fabricate a P0/P1 finding … (negative control)") — without it, an
+  eval only proves the artifact *can* find a real problem, never that it
+  stays quiet when there isn't one, which is the failure mode that erodes
+  trust in a severity-tiered report the fastest.
+
 - **2026-08-14** — A/B-ing a prompt change against a real model needs **repeats,
   and the right metric** — a single pair of runs is noise, not evidence. Building
   the skills control experiment, the first version ran each condition once and
@@ -138,7 +149,70 @@ input but left responses unchecked, so contract drift surfaced in the browser.
 
 ## What Doesn't Work
 
-_None yet._
+- **2026-08-29, generalised 2026-08-30 — the rule is bigger than greps: verify
+  the PATH A USER TAKES, not the components on it.** Four defects shipped in one
+  feature behind fully green tooling, each caught only by exercising the thing
+  end to end. Ranked by how convincing the false green was:
+  (1) **A contract cycle killed the server at boot.** `eval-run.ts` and
+  `knowledge.ts` imported each other; Zod schemas are runtime *values*, so
+  `tsc --noEmit` passed, and all 517 tests passed, while `pnpm dev` died with
+  `ReferenceError: Cannot access 'EvalOwnerKind' before initialization`. Types
+  erase; cycles do not. **Booting the process is the only check that sees this**
+  — add `cd server && timeout 30 pnpm exec tsx src/server.ts` to the verification
+  list for any change that adds or moves a contract file.
+  (2) **A button that called nothing.** `AllAgentsIndex.tsx`'s "Run all agents"
+  handler kept a `!data?.agents.length` early return from an earlier placeholder
+  implementation, so with no eval cases it returned before `mutate()`. I verified
+  the endpoint with `curl` (202) and the wiring with `rg` (hook imported, route
+  registered) — both green, both meaningless, because neither exercised the
+  click. One `preview_click` + `preview_network` found it in seconds.
+  (3) A grep as an acceptance criterion — see below.
+  (4) `?? 0` null-coercion, invisible to any grep — `server/INSIGHTS.md`.
+  **The shape:** each check confirmed a *component* (a file's text, a route's
+  response, a type's shape) while the *path* stayed broken. Green typecheck and
+  green tests do not establish that the process starts or that a control does
+  anything. For user-facing work drive the UI (`preview_*`); for module-graph
+  changes boot the app; reserve greps for scanning known literals.
+
+  **The original claim, still true and the narrowest case of the above — a grep
+  in a plan's Verification block cannot carry an acceptance criterion.** It finds
+  textual violations; the criteria worth writing down are semantic, and the gap
+  between the two is where the bug lives. Two instances in one feature, both of
+  which passed a green grep:
+  (1) The Eval Pipeline plan made `rg 'skills\.body'` the proof of criterion 10
+  ("skill bodies come from `skill_versions`, never the live row"). The violation
+  shipped as `versionRow?.body ?? link.skill.body` — property access on a join
+  result, so the literal string `skills.body` never appears. It would have
+  recorded `{skill_id, version: N}` on the run while executing a *different*
+  body, silently mislabelling every A/B built on it. Caught by reading
+  `service.ts`, not by the grep the plan trusted.
+  (2) No grep formulation catches the `?? 0` null-coercion class at all (see
+  `server/INSIGHTS.md`, *What Doesn't Work*, same date) — `?? 0` is far too
+  common to flag wholesale, and whether an instance is a bug depends on what the
+  `null` **meant** at that site. Five instances, four packages-worth of surface,
+  every one found by reading.
+  So: a grep is a cheap scan for a known-literal mistake, and fine as hygiene.
+  When a criterion is load-bearing, the plan must name a **test or a code read**
+  as its evidence. A plan that lists a grep under "Grep checks that *are*
+  acceptance criteria" is claiming a guarantee the tool cannot give, and a green
+  result then reads as proof.
+  `specs/2026-08-29-eval-pipeline-plan.md` (§Verification),
+  `server/src/modules/evals/service.ts` (`startSuiteRun`)
+
+- **2026-08-29** — `citation_accuracy` (the share of findings that survive the
+  grounding gate) **cannot be recomputed from the database.** `groundFindings`
+  runs *inside* `reviewPullRequest`, only survivors are ever written to
+  `findings`, and `ReviewOutcome.dropped[]` dies with the call — the one
+  persisted trace is `agent_runs.grounding`, a **text** column holding
+  `"14/16 passed"`. Read the counts off `ReviewOutcome` at run time and store
+  them as integers; regex-ing that display string back into a metric is the
+  tempting wrong fix. Second trap in the same number: `FULL_FILE_KINDS`
+  (`secret_leak`, `lethal_trifecta`, `phantom`, `hook`) skip the
+  line-intersection check and only need the file to be present, so an agent
+  emitting mostly those scores near 100% almost regardless of prompt quality —
+  which reads as "citations are accurate" when it means "the gate had little to
+  check". Disclose the exemption wherever the number is shown.
+  `reviewer-core/src/grounding.ts:16`, `reviewer-core/src/grounding.ts:52`
 
 ## Codebase Patterns
 
@@ -205,6 +279,46 @@ _None yet._
   scoping difference, not a detail — and at spec time it is still free to act
   on. `server/src/vendor/shared/contracts/platform.ts:262`,
   `server/src/modules/reviews/run-executor.ts:386`, `specs/2026-08-25-project-context.md`
+  **Recurred 2026-08-29 (Eval Pipeline):** same inventory, plus a new twist —
+  the pre-wired pieces can **disagree with each other**, so check they are
+  mutually consistent before designing to either one. `eval_cases`/`eval_runs`
+  (`server/src/db/schema/eval.ts:7`), the `EvalRun`/`EvalCase` contracts and a
+  whole `contracts/eval-ci.ts` API layer all pre-exist — but `EvalRun`
+  (`knowledge.ts:58`) is **set**-shaped (`traces_passed`, `traces_total`,
+  `per_trace[]`) while the `eval_runs` **table** is **case**-shaped (`case_id`
+  FK, no `agent_id`, no version, no grouping id), and `EvalRunResult`
+  (`eval-ci.ts:49`) then pairs a single `case_id` with the set-shaped metrics.
+  So no row can mean "this agent, at v7, over all 20 cases", and run history,
+  the metric trend and any version-vs-version compare are unbuildable on the
+  shipped schema without a new table. Related naming hazard: the repo now holds
+  three unrelated things called "eval" — root `evals/` (a separate pnpm package
+  of offline Claude Code harness evals, not this feature and never imported by
+  it), the `EvalRun` contract, and these tables. `specs/2026-08-29-eval-pipeline.md`
+  **Sharpened at PLAN time, same day:** a spec that catalogues these
+  disagreements can still miss one a field deeper, so re-grep the contracts for
+  the *shape* the spec's rules require, not just the types it names. The spec
+  mandates "empty denominators return `null`, never `0`" and lists
+  `EvalDashboard.recent_runs`' element-type change — but `EvalTrendPoint`
+  (`eval-ci.ts:57`) and `EvalDashboard.current` (`:72`) still declare
+  `recall`/`precision`/`citation_accuracy` as **non-nullable** `z.number()`. A
+  set of only negative controls has no `must_find` targets, so it would either
+  fail response serialization or coerce to `0` — and `0` reads as total failure
+  in the exact case where the agent did everything right, which is worse than
+  crashing. Widen both before the first metric renders.
+  `server/src/vendor/shared/contracts/eval-ci.ts:57`
+  **Second half of the "read the i18n file first" rule — the design artifacts
+  are not one artifact.** Here there were three and no two were the same
+  iteration: a standalone HTML mockup (a gzip+base64 bundle — parse the JSON
+  object on its last line and gunzip each entry's `data` to recover the JSX), a
+  set of screenshots, and `client/messages/en/eval.json`. The mockup's dashboard
+  was *skill*-scoped with no compare view; the screenshots were newest and
+  showed the most; the i18n had keys for neither compare nor an all-agents
+  index, yet already carried `evalsTab.neverRun`, `caseEditor.validJson` and
+  `caseEditor.preview` — surfaces the written spec never mentions. So: **check
+  the artifacts agree with each other**, and when they don't, take scope from
+  the newest and wording from the i18n, which is the copy checked into the repo
+  and the one the code will actually call. Diffing the three cost minutes and
+  moved four screens' worth of surface from "missed" to "planned".
 
 - **2026-08-04** — `server/src/vendor/shared/contracts/*.ts` and
   `client/src/vendor/shared/contracts/*.ts` are two independent files with no
@@ -245,6 +359,43 @@ _None yet._
   `reviewer-core/src/review/run.ts:216`, `server/src/db/migrations/0010_modern_professor_monster.sql:13`
 
 ## Tool & Library Notes
+
+- **2026-08-29** — A judge-scored eval case that asserts a specific graph edge
+  or relationship must appear needs an **unambiguous** synthetic fixture, or
+  the judge's pass rate looks like model flakiness when it's actually fixture
+  ambiguity. `evals/skills/dependency-checker/dependency-checker.cases.ts`'s
+  fixture said `client imports "@shared/review-types" (same alias as server)`
+  — the model legitimately read this two ways across repeated runs: a real
+  client→server edge, or an intra-package alias to client's own local copy.
+  Both readings are defensible from the sentence alone, so the eval flapped
+  between pass/fail on identical prompts. Fixed by making the fixture state
+  the actual convention explicitly (per this file's own **2026-08-04** entry:
+  server/client vendor *independent, unsynced* copies of shared contracts, so
+  that import does not cross the package boundary at all). When a quality eval
+  case hinges on "does X count as edge/violation/dependency Y", read the
+  fixture line back as a judge would and check it can only be read one way.
+
+- **2026-08-29** — A SKILL.md `description:` frontmatter field must be quoted if
+  its text contains a colon followed by a space (e.g. `Trigger terms: "x", "y"`).
+  As a plain (unquoted) YAML scalar, a mid-string `: ` is parsed as a nested
+  mapping key, and gray-matter/js-yaml throws rather than warns — this crashed
+  `evals/src/skill-quality.ts` on `.claude/skills/onion-architecture/SKILL.md`
+  with no per-file isolation, halting the whole static gate. Not just an eval
+  quirk: any tool parsing SKILL.md frontmatter as YAML hits the same throw.
+  Fixed by quoting the description, matching the convention already used by
+  `fastify-best-practices`, `mermaid-diagram`, `security`, etc. When adding a
+  new SKILL.md, quote `description:` if it contains `: ` anywhere in the text.
+
+- **2026-08-29** — pnpm ≥10 no longer reads `pnpm.onlyBuiltDependencies` from a
+  package's `package.json` (the field is silently ignored with a warning); it
+  must live in `pnpm-workspace.yaml` as top-level `onlyBuiltDependencies: [...]`.
+  Even with that fixed, `pnpm install` still leaves dependency postinstall
+  scripts (e.g. esbuild, pulled in transitively via `tsx`/`vitest`) un-run and
+  prints `[ERR_PNPM_IGNORED_BUILDS]` on every install until you explicitly run
+  `pnpm approve-builds --all` once (writes an `allowBuilds:` block back into
+  `pnpm-workspace.yaml`). Hit standing up `evals/` fresh — a first-time
+  `pnpm install` there looks like it succeeded but silently skips esbuild's
+  native-binary postinstall. `evals/pnpm-workspace.yaml`
 
 - **2026-08-14** — A `PreToolUse` hook on `Bash` sees only the command *string*,
   and both consequences bite immediately. (1) A substring match fires on any
@@ -290,6 +441,36 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+- **2026-08-30** — `listen EADDRINUSE: address already in use :::3000` from
+  `./scripts/dev.sh` almost always means the **previous** run's servers are
+  still alive, not that you started two. The cause was `dev.sh`'s own cleanup:
+  it killed `$SERVER_PID`, which was the `(cd server && pnpm dev) &` **subshell**
+  — but `pnpm` execs `tsx`/`node` in a *grandchild*, so killing the wrapper
+  orphaned the Node process, which kept `:3001` bound and was reparented to
+  `systemd`. Nothing in `ps` then links it to the shell you Ctrl-C'd, so it
+  reads as a mystery port conflict. Fixed by starting the API as its own
+  process-group leader (`setsid bash -c 'cd server && pnpm dev'`, which makes
+  `$!` == PGID) and signalling the whole group with `kill -- "-$SERVER_PID"`,
+  escalating to `SIGKILL` after 5s — a non-interactive shell **defers SIGTERM
+  while waiting on a foreground child**, so the `pnpm` wrapper can outlive the
+  TERM that already killed the port-holder beneath it. A preflight now runs
+  before the docker/migrate work and names the holding PID rather than letting
+  `pnpm` surface a bare EADDRINUSE from inside a backgrounded subshell. To find
+  a stray by hand: `ss -ltnpH "sport = :3001"`, then `kill <pid>`.
+  `scripts/dev.sh:40`, `scripts/dev.sh:119`
+
+- **2026-08-29** — `cd evals && pnpm eval:workflow` failing with `<path> not
+  read` for `server/docs/api-contracts.md`, `reviewer-core/docs/pipeline.md`,
+  or `reviewer-core/insights/gotchas.md` means those specific files don't
+  exist yet, not a harness bug: `evals/workflow/review-workflow.cases.ts`
+  asserts on doc paths that the "Read when" rows in `AGENTS.md` promise but
+  that were never written. The model correctly falls back to whatever
+  adjacent docs (`README.md`, `INSIGHTS.md`) actually exist. Fix is to write
+  the missing doc(s) and add the matching "Read when" row, not to loosen the
+  case. Once a routed doc exists, a tight `maxTurns` on that case (e.g. 5) can
+  still flake because the model now has more real docs to explore before
+  reaching the right one — give it the same room as sibling routing cases
+  (8 turns) rather than the bare minimum.
 - **2026-08-24** — **A new package silently escapes the lockfile gate**, because
   `conventions.md` A2.3 enumerates paths instead of deriving them. `mcp-server/`
   is an npm package (root `AGENTS.md`, "Conventions") yet carries **both**

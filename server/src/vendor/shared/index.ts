@@ -32,4 +32,5 @@ export * from './contracts/observability.js';
 export * from './contracts/productionize.js';
 export * from './contracts/blast.js';
 export * from './contracts/pr-blast.js';
+export * from './contracts/eval-run.js';
 export * from './adapters.js';

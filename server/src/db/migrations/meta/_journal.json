@@ -120,6 +120,20 @@
       "when": 1787827123975,
       "tag": "0016_omniscient_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788026373738,
+      "tag": "0017_dry_yellow_claw",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788026934457,
+      "tag": "0018_productive_ultimates",
+      "breakpoints": true
     }
   ]
 }

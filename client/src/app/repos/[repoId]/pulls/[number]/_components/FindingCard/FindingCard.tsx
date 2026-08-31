@@ -1,7 +1,11 @@
 /* FindingCard — ported from findings.jsx (createElement → TSX).
    Severity icon+label, category, file:line, confidence, markdown rationale +
    suggestion, accept/dismiss actions. Accept/dismiss reflect persisted
-   timestamps. */
+   timestamps.
+
+   Step 22: "Turn into eval case" action — disabled with tooltip reason when
+   the finding is undecided (criterion 3); hidden entirely when agentId is
+   absent (Decision A: no owner to attach the case to). */
 "use client";
 
 import React from "react";
@@ -31,6 +35,9 @@ export function FindingCard({
   pending,
   repoFullName,
   headSha,
+  agentId,
+  onCreateEvalCase,
+  isCreatingEvalCase,
 }: {
   f: FindingRecord;
   focused?: boolean;
@@ -39,6 +46,16 @@ export function FindingCard({
   pending?: boolean;
   repoFullName?: string | null;
   headSha?: string | null;
+  /**
+   * The agent_id from the review that produced this finding.
+   * Decision A: when absent the "Turn into eval case" button is hidden entirely
+   * (no owner to attach a case to, and a permanently-disabled button is noise).
+   */
+  agentId?: string | null;
+  /** Called by FindingsPanel (which owns the mutation) when the user clicks "Turn into eval case". */
+  onCreateEvalCase?: (findingId: string) => void;
+  /** True while FindingsPanel's createEvalCase mutation is pending for this finding. */
+  isCreatingEvalCase?: boolean;
 }) {
   const t = useTranslations("prReview");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
@@ -50,6 +67,7 @@ export function FindingCard({
   const accepted = !!f.accepted_at;
   const dismissed = !!f.dismissed_at;
   const muted = accepted || dismissed;
+  const decided = accepted || dismissed;
 
   return (
     <div data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
@@ -128,6 +146,31 @@ export function FindingCard({
             >
               {t("finding.dismiss")}
             </Button>
+
+            {/* "Turn into eval case" — hidden when agentId is absent (Decision A).
+                Disabled with tooltip reason when undecided (criterion 3).
+                Mutation lives in FindingsPanel; wired via onCreateEvalCase callback. */}
+            {agentId && (
+              <span
+                title={!decided ? t("finding.evalCaseDisabledReason") : undefined}
+                style={{ display: "inline-flex" }}
+              >
+                <Button
+                  kind="ghost"
+                  size="sm"
+                  icon="FlaskConical"
+                  disabled={!decided || !!isCreatingEvalCase}
+                  loading={!!isCreatingEvalCase}
+                  onClick={() => {
+                    if (decided) onCreateEvalCase?.(f.id);
+                  }}
+                >
+                  {isCreatingEvalCase
+                    ? t("finding.evalCaseCreating")
+                    : t("finding.turnIntoEvalCase")}
+                </Button>
+              </span>
+            )}
           </div>
         </div>
       )}

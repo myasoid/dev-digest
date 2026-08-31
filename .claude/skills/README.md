@@ -24,6 +24,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [deprecation-policy](deprecation-policy/SKILL.md) | Full-stack | Mark a surface deprecated (with a replacement and removal trigger) instead of silently deleting it |
 | [typescript-expert](typescript-expert/SKILL.md) | Full-stack | Type-level programming, performance, tooling, migrations |
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
+| [dependency-checker](dependency-checker/SKILL.md) | Full-stack | Audits per-package + cross-package dependencies — graph, sizes, severity-tiered findings |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 
 ## Authoring load vs review load

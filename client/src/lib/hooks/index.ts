@@ -73,3 +73,21 @@ export { useConventions, useExtractConventions, useUpdateConvention } from "./co
 export type { UpdateConventionInput } from "./conventions";
 
 export { useBlastRadius } from "./blast";
+
+export {
+  useEvalCases,
+  useEvalRuns,
+  useEvalSuiteRunDetail,
+  useEvalDashboard,
+  useEvalGlobalDashboard,
+  useAgentVersion,
+  useEvalRunPair,
+  useCreateEvalCaseFromFinding,
+  useCreateEvalCase,
+  useUpdateEvalCase,
+  useDeleteEvalCase,
+  useStartEvalSuiteRun,
+  useRunEvalCase,
+  useRunAllAgents,
+} from "./evals";
+export type { CreateEvalCaseInput, UpdateEvalCaseInput } from "./evals";

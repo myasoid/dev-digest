@@ -29,8 +29,15 @@ export async function loadDiff(
   return diffFromPrFiles(repo, pull.id);
 }
 
-/** Reconstruct a UnifiedDiff from persisted pr_files patches. */
-export async function diffFromPrFiles(repo: ReviewRepository, prId: string): Promise<UnifiedDiff> {
+/**
+ * Assemble the whole-PR diff as a **text string** from persisted pr_files
+ * patches. Used by eval case creation, which needs to store the raw text in
+ * `eval_cases.input_diff` rather than the parsed `UnifiedDiff` object.
+ *
+ * This is the text-level counterpart to `diffFromPrFiles` — behaviour-identical
+ * reconstruction, just returning the joined string instead of parsing it.
+ */
+export async function prFilesToDiffText(repo: ReviewRepository, prId: string): Promise<string> {
   const files = await repo.getPrFiles(prId);
   const parts: string[] = [];
   for (const f of files) {
@@ -40,5 +47,10 @@ export async function diffFromPrFiles(repo: ReviewRepository, prId: string): Pro
     parts.push(`+++ b/${f.path}`);
     parts.push(f.patch);
   }
-  return parseUnifiedDiff(parts.join('\n'));
+  return parts.join('\n');
+}
+
+/** Reconstruct a UnifiedDiff from persisted pr_files patches. */
+export async function diffFromPrFiles(repo: ReviewRepository, prId: string): Promise<UnifiedDiff> {
+  return parseUnifiedDiff(await prFilesToDiffText(repo, prId));
 }

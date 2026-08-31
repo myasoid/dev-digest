@@ -44,5 +44,7 @@ pnpm db:seed                                # idempotent demo data
 - Read `INSIGHTS.md` first for what was already tried here, and run the
   `engineering-insights` skill at the end of the task to add to it.
 - Read `README.md` for the API map and the request/DI flow diagram.
+- Read `docs/api-contracts.md` when adding or changing an API route — the
+  contract-first conventions and checklist.
 - Read `src/modules/repo-intel/README.md` when touching indexing or the repo map.
 - Read `../TESTING.md` before adding a test or changing the unit/integration split.

@@ -87,55 +87,43 @@ match — verify-then-replace gives a stronger guarantee for less code.
 
 ## What Works
 
-_None yet._
+- **2026-08-29** — Driving an experiment through `EvalService` (rather than
+  calling `reviewPullRequest` directly) is the correct approach whenever the
+  thing under test is the whole eval machinery: `EvalRunInputs` gets recorded,
+  `scoring.ts` runs on the real path, and a confound in `skill_versions` or
+  `case_set_revision` is visible in the output. The cost is a live Postgres
+  dependency. Synchronising with the fire-and-forget run requires
+  `runBus.onDone(runId, callback)` — the bus emits `'done'` after
+  `this.container.runBus.complete(suiteRunId)` fires at the end of
+  `executeRunInBackground`, and `onDone` fires immediately via `queueMicrotask`
+  when called on an already-completed run (safe for polling late). Do NOT poll
+  `getSuiteRun` in a sleep loop — `complete()` fires before the DB write
+  commits, so a tight polling loop will read `status = 'running'` after `onDone`
+  has already fired and exit prematurely. The settled pattern: subscribe
+  `onDone`, then call `getSuiteRun` inside the callback.
+  `server/src/platform/sse.ts` (`RunBus.onDone`),
+  `server/scripts/evals-experiment.ts` (`waitForSuiteRun`)
 
 ## What Doesn't Work
 
-_None yet._
+- **2026-08-29** — `?? 0` on a nullable metric is the single most recurring
+  defect across the eval pipeline (five instances across Phases 1–5). The
+  pattern: a helper that correctly returns `null` for an empty denominator has
+  its null coerced back to `0` at the aggregation or reporting call site, turning
+  "no data" into a confident `0%` — the exact failure mode the scorer was
+  designed to prevent. In a spread computation the damage is worse: coercing
+  `maxOf(values) ?? 0` and `minOf(values) ?? 0` when both return `null` gives
+  `spread = 0 - 0 = 0`, which silently disables any guard of the form
+  `delta < spread` (it is always false against 0). The correct shape at every
+  use site: propagate `null` through arithmetic with explicit `null` checks,
+  never `?? 0`. Only suppress with `?? 0` when the semantic really is "null cost
+  is zero spend" (e.g. summing `cost_usd` for a total). Two triggers to watch:
+  (1) a nullable metric used inside a subtraction or division without a prior
+  null guard; (2) a spread or variance computation that coerces its inputs.
+  `server/scripts/evals-experiment.ts` (`reportPrediction`, fixed 2026-08-29),
+  `server/src/modules/evals/service.ts` (two instances fixed in Phase 4)
 
 ## Codebase Patterns
-
-- **2026-08-26** — A discovered document's **listed path is its stored
-  identity** (`context_doc_links.path`), so widening `FsContextDocsAdapter`'s
-  walk from three fixed `.devdigest/<type>/` folders to the whole working copy
-  could not simply switch to true repo-relative paths: the old code stripped
-  the `.devdigest/<type>` prefix (`.devdigest/specs/x.md` listed as
-  `specs/x.md`), and every existing attachment/fixture/test used that
-  stripped form as identity. Emitting the true path for those same files would
-  have silently detached every existing attachment. Fix: `list()` keeps
-  emitting the historic stripped form for files still found under
-  `.devdigest/<specs|docs|insights>/` (`legacyIdentityPath()`) and the true
-  repo-relative path only for newly-discoverable files elsewhere; `read()`'s
-  containment check tries the legacy nested location *before* the literal
-  path, both through the same `realpath` escape gate. General shape to watch
-  for: before widening what a discovery/list function scans, check whether
-  its *output shape* — not just its output set — is load-bearing somewhere
-  that stores it. `server/src/adapters/context-docs/fs.ts`
-  (`legacyIdentityPath`, `resolveContained`'s two-candidate lookup)
-
-- **2026-08-26** — When a spec's EARS wording says "classify by X or Y
-  ancestor segment" but a real fixture needs a *third* case to keep working,
-  the fixture wins and the wording is incomplete, not the fixture wrong. The
-  amended spec's AC-2 literally named only `specs`/`docs` ancestor segments;
-  the seeded insights fixture is `.devdigest/insights/rate-limiting.md` — not
-  literally named `insights.md`, so it only classifies correctly if the
-  heuristic *also* scans for an `insights` ancestor segment. Implemented that
-  way, deliberately wider than the AC's literal text, and confirmed by reading
-  the actual seed fixture rather than trusting the AC's prose. A future
-  "fix" that narrows the heuristic back to the AC's literal wording would
-  silently break this. `server/src/adapters/context-docs/types.ts`
-  (`typeForContextDocPath`), `server/src/db/seed.ts` (insights fixture
-  filename)
-
-- **2026-08-26** — `MockContextDocsPort` (`server/src/adapters/mocks.ts`) cannot
-  exercise a UTF-8-decode-failure path by construction: it is keyed by JS
-  strings, which are always already-valid text, so a mocked "read" can never
-  fail to decode. Its own docstring claims it makes "AC-1…AC-11" testable,
-  which overstates coverage for exactly the one case that needs undecodable
-  bytes — that path (`ContextDocReadError` naming the file's path, no partial
-  content returned) can only be tested against the real
-  `FsContextDocsAdapter`, with a temp-dir fixture containing an invalid byte
-  sequence. `server/src/adapters/context-docs/fs.test.ts`
 
 - **2026-08-21** — `getBlastRadius`'s caller cap is named and documented
   per-symbol (`MAX_CALLERS_PER_SYMBOL = 20`, *"Caller fan-out cap per changed
@@ -333,6 +321,25 @@ _None yet._
 
 ## Tool & Library Notes
 
+- **2026-08-30** — A route whose body is *semantically* optional must use
+  `z.preprocess((v) => v ?? {}, z.object({...}))`. Neither a bare `z.object({...})`
+  with all-optional fields nor `.default({})` works, and the reason is not
+  guessable: **Fastify hands the validator `null`** for an absent body — the error
+  is literally `"body/ Expected object, received null"` — even though `req.body`
+  reads as `undefined` inside the handler. Zod's `.default()` only fires on
+  `undefined`, so it never triggers. Probed against the repo's own
+  `fastify-type-provider-zod`: bare object → 422, `.default({})` → **still 422**,
+  `.nullish().default({})` and `.nullable()` → pass but deliver `null` to the
+  handler (so every `req.body.x` needs `?.`), `preprocess` → passes *and* yields
+  `{}`, leaving `req.body.x` valid. This bites whenever the client omits the body:
+  `apiFetch` deliberately drops the `content-type` header when there is no body
+  (`client/src/lib/api.ts:30`), so Fastify never runs its JSON parser. Live case:
+  `POST /agents/:id/eval-runs` 422'd on every unfiltered "Run all evals" while the
+  filtered path worked. Regression test:
+  `server/test/routes-smoke.test.ts` ("accepts an omitted body") — it needs no
+  Postgres because validation runs before the handler.
+  `server/src/modules/evals/routes.ts:74`
+
 - **2026-08-26** — Under the `postgres-js` Drizzle driver, `db.execute(sql\`...\`)`
   returns the raw `postgres` `RowList` directly (array-like), NOT
   `{ rows: [...] }` — the shape some other node Postgres clients use for
@@ -392,6 +399,63 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+- **2026-08-30** — Overriding `llm: { openai: new MockLLMProvider(...) }` in a
+  review integration test does **not** make the run hermetic: it still hits the
+  network. `IntentClassifier.classify` resolves its own model via
+  `resolveFeatureModel(container, workspaceId, 'review_intent')`
+  (`src/modules/reviews/intent-classifier.ts:133`), and `review_intent` defaults to
+  **`openrouter` / `deepseek/deepseek-v4-flash`**
+  (`src/vendor/shared/contracts/platform.ts:52`) — a provider the override never
+  replaced. Consequence: `test/skills-prompt.it.test.ts` fails deterministically
+  (2/2 at HEAD) because real LLM prose in the `## PR intent` block differs between
+  the two runs it compares, and `test/reviews.it.test.ts` is flaky at ~20-40%
+  because real network latency (3.5s-10s observed) overruns the poll timeout.
+  Both are **pre-existing**, not caused by the eval pipeline. Two compounding
+  traps: (1) a per-feature model resolved *inside* a service is invisible at the
+  `buildApp({ overrides })` call site — override **every** provider key
+  (`openai`, `anthropic`, `openrouter`), not just the agent's; (2) `waitForPrRuns`
+  **returns silently** on timeout instead of throwing
+  (`test/helpers/runs.ts:31`, `if (Date.now() - start > timeoutMs) return runs;`),
+  so a timeout surfaces far away as `Cannot read properties of undefined` on
+  `reviews[0]` rather than as "the run never finished".
+
+- **2026-08-30** — A `*.it.test.ts` fixture that **inserts its own workspace row**
+  makes every workspace-scoped route return `404`, and the 404 reads as a routing
+  or module-registration bug rather than a tenancy mismatch.
+  `LocalNoAuthProvider.currentWorkspace()` resolves the workspace by *name*
+  (`DEFAULT_WORKSPACE_NAME`, from `db/seed.ts`) and caches it, so `getContext()`
+  always returns the **seeded** workspace id no matter what the fixture inserted;
+  a service that scopes its lookup by `workspaceId` then finds nothing. Concrete
+  case: `evals.it.test.ts`'s `seedFixture` inserted a workspace named
+  `'Test workspace'` and hung the repo/PR/agent/review/finding off it — 7 of its 8
+  tests failed `expected 404 to be 201` on `POST /findings/:id/eval-case` while
+  the route was correctly registered and the service logic was correct. The tell
+  that it is *not* a routing bug: one test in the same file passed, and it was the
+  only one calling the service directly instead of via `app.inject`. Working
+  pattern — **select** the already-seeded workspace and hang fixture rows off it:
+  `const [ws] = await db.select().from(t.workspaces); workspaceId = ws!.id;`
+  (`server/test/reviews.it.test.ts:106`). Applies to any route using
+  `getContext`, not just evals. `server/src/adapters/auth/local.ts:28`
+
+- **2026-08-29** — In the eval scorer, *"one finding spanning three targets counts
+  **once**"* and *"recall counts matched targets"* are **two different counters**,
+  and resolving the match with `Array.find()` satisfies the first while silently
+  under-counting the second. `find()` returns the first `must_find` target a
+  finding hits, which is correct for the TP count (findings are the unit) but
+  leaves the other two targets unmarked, so `recall_num` reports 1 where the
+  truth is 3 — recall comes out low, with no error and no failing type. Use
+  `filter()` and add **every** hit to the matched-target set, then count TP from
+  the per-finding resolution map, not from the target side:
+  `const mfHits = mustFindTargets.filter(t => findingMatchesTarget(f, t))`
+  (`server/src/modules/evals/scoring.ts:147`). The spec sentence is what induces
+  the bug — it is about the TP count and says nothing about recall's numerator.
+  The general shape: whenever a scorer's two metrics have **different
+  denominators** (here precision's is findings, recall's is targets), a single
+  lookup cannot serve both, and the wrong one fails silently because both
+  produce plausible numbers. Test it with one finding deliberately spanning
+  several targets and assert the numerator, not just pass/fail
+  (`scoring.test.ts`, "one finding spanning three targets").
+
 - **2026-08-21** — `export type { X } from 'module'` (a re-export) does NOT
   bind `X` into the *local* module's scope for further use in that same
   file — it only makes `X` importable from elsewhere. Promoting
@@ -434,6 +498,23 @@ _None yet._
   `app.ts`'s error handler maps any `AppError.statusCode` straight through, so
   that is the only thing needed for a 404. Assume the same gap in any
   `lookup-then-update` pair here. `server/src/modules/reviews/findings.ts:25`
+
+- **2026-08-29** — pgvector column dimension mismatch silently breaks all
+  queries that touch the column. When switching embedding models (e.g. from
+  OpenAI's 1536-dim to Anthropic's 1024-dim), any `WHERE` or `ORDER BY` clause
+  on the vector column returns zero rows without error — the comparison operators
+  silently fail. Postgres allows inserting vectors of any dimension into a typed
+  column, but the query planner rejects the comparison. The vector values are
+  stored fine; only comparisons against mismatched dimensions fail. Fix: before
+  changing the embedding model in code, either (1) migrate the column to the new
+  dimension using `ALTER TABLE <table> ALTER COLUMN <vec_col> SET DATA TYPE
+  vector(<new_dim>)` (Postgres 14+, slow on large tables, acquires
+  `AccessExclusiveLock`); or (2) create a new column, backfill it, and drop the
+  old. Use `pnpm db:generate && pnpm db:migrate` to make the change durable.
+  Without the migration, a deploy that changes the embedding model leaves
+  production reading an empty result set until someone runs the DDL. Watch for
+  zero-row complaints with no error in the logs paired with recent embedding-model
+  changes in code or release notes.
 
 ## Open Questions
 

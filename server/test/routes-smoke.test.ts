@@ -64,4 +64,33 @@ describe('routes (no DB)', () => {
     expect(res.json().error.code).toBe('validation_error');
     await app.close();
   });
+
+  // Regression: the client omits the body entirely for an unfiltered "run all
+  // evals" (`api.post(path, undefined)` → no content-type → no parsed body), and
+  // a bare `z.object({...})` body schema rejected it with 422 before the handler
+  // ran. Validation happens before any DB access, so this is assertable with no
+  // Postgres: we only care that it is NOT a validation failure. The DB-backed
+  // tests all sent `payload: {}`, a shape the client never produces, so none of
+  // them covered this path.
+  it('POST /agents/:id/eval-runs accepts an omitted body (unfiltered run)', async () => {
+    const app = await buildApp({ config });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/agents/3f1a9b7e-2c4d-4e8a-9b1f-5d6c7a8e9f01/eval-runs',
+    });
+    expect(res.statusCode).not.toBe(422);
+    await app.close();
+  });
+
+  it('POST /agents/:id/eval-runs still rejects a malformed case_ids filter', async () => {
+    const app = await buildApp({ config });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/agents/3f1a9b7e-2c4d-4e8a-9b1f-5d6c7a8e9f01/eval-runs',
+      payload: { case_ids: ['not-a-uuid'] },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe('validation_error');
+    await app.close();
+  });
 });
